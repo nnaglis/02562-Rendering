@@ -2,64 +2,71 @@
 <html>
 
 <head>
-    <title>W1P3</title>
-    <script type="text/javascript" src="w1p3.js"></script>
+<title > W1P3</title>
+<script type="text/javascript" src="../common/MV.js"></script>
+<script type = "text/javascript" src = "w1p3.js"></script>
 </head>
 
 <body>
-    <canvas id="webgpu-canvas" width="512" height="512">
-        Please use a browser that supports HTML5 canvas.
+<canvas id = "webgpu-canvas" width = "512" height = "512">
+<script id = "wgsl" type = "x-shader">
+
+struct Uniforms {
+    eyePos: vec3f,
+    padding1: f32, // Padding to align vec3f
+    lookAt: vec3f,
+    padding2: f32, // Padding to align vec3f
+    up: vec3f,
+    padding3: f32, // Padding to align vec3f
+    const_cam: f32,
+};
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+struct VSOut {
+    @builtin(position) position : vec4f,
+    @location(0) coords : vec2f,
+};
+
+struct Ray {
+    origin: vec3f,
+    direction: vec3f,
+    tmin: f32,
+    tmax: f32,
+};
+
+fn get_camera_ray(ipcoords: vec2f) -> Ray
+{
+    let v = normalize(uniforms.lookAt - uniforms.eyePos);
+    let u = uniforms.up;
+    var b1 = normalize(cross(v, u));
+    let b2 = cross(b1, v);
+    return Ray(uniforms.eyePos, b1 * ipcoords.x + b2 * ipcoords.y + v * uniforms.const_cam, 0.0, 1.0e32);
+}
+
+@vertex
+fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut 
+{
+    const pos = array<vec2f, 4 > (vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
+    var vsOut : VSOut;
+    vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
+    vsOut.coords = pos[VertexIndex];
+    return vsOut; 
+}
+
+
+
+
+@fragment
+fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
+{
+    let ipcoords = coords*0.5;
+    let ray = get_camera_ray(ipcoords);
+    return vec4f(ray.direction * 0.5 + 0.5, 1.0);
+    //return vec4f(uniforms.const_cam, 0.0, 0.0, 1.0);
+}
+    </script>
+    Please use a browser that supports HTML5 canvas.
     </canvas>
-    <script id="wgsl" type="x-shader">
-        struct Uniforms { 
-            aspect: f32,
-            cam_const: f32, };
-            @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+    </body>
 
-        struct VSOut {
-            @builtin(position) position: vec4f,
-            @location(0) coords : vec2f, };
-            @vertex
-            fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
-            {
-            const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0)); var vsOut: VSOut;
-            vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
-            vsOut.coords = pos[VertexIndex];
-            return vsOut;
-            }
-            struct Ray { 
-                origin: vec3f,
-                direction: vec3f,
-                tmin: f32,
-                tmax: f32
-                };
-            // Define Ray struct
-            fn get_camera_ray(uv: vec2f) -> Ray
-            {
-                const eyePoint = vec3f(2.0, 1.5, 2.0);
-                const viewPoint = vec3f(0.0, 0.5, 0.0);
-                const upVector = vec3f(0.0, 1.0, 0.0);
-                const cameraConstant = 1.0;
-
-                let viewingDirection =  normalize(viewPoint - eyePoint);
-                let cameraBasis1 = normalize(cross(viewingDirection, upVector));
-                let cameraBasis2 = cross(cameraBasis1, viewingDirection);
-                var r : Ray;
-                r.direction = normalize(cameraConstant * viewingDirection + uv.x * cameraBasis1 + uv.y * cameraBasis2);
-                return r;
-            }
-        
-            @fragment
-            fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
-            {
-            // let uv = coords*0.5;
-            let uv = vec2f(coords.x*uniforms.aspect*0.5, coords.y*0.5);
-            var r = get_camera_ray(uv);
-            return vec4f(r.direction*0.5 + 0.5, 1.0);
-            }
-        </script>
-    
-
-</body>
-
-</html>
+    </html>

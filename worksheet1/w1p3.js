@@ -1,6 +1,13 @@
 "use strict";
-var cam_const;
-var uniforms;
+
+const padding = 0.0;
+
+class Camera {
+    eyePos = vec3(2.0, 1.5, 2.0);
+    lookat = vec3(0.0, 0.5, 0.0);
+    up = vec3(0.0, 1.0, 0.0);
+    constant = 1.0;
+};
 
 window.onload = function () { main(); }
 async function main() {
@@ -14,8 +21,6 @@ async function main() {
         device: device,
         format: canvasFormat,
     });
-
-    
 
     
 
@@ -41,34 +46,28 @@ async function main() {
     });
 
     const uniformBuffer = device.createBuffer({
-        size: 8, // number of bytes
+        size: 64,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
-        const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{
+    const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{
         binding: 0,
         resource: { buffer: uniformBuffer } }],
-        });
+    });
 
-    const aspect = canvas.width/canvas.height;
-    var cam_const = 0;
-    var uniforms = new Float32Array([aspect, cam_const]);
+    // Create an instance of the Camera class
+    const camera = new Camera();
+
+    var uniforms = new Float32Array([
+        camera.eyePos[0], camera.eyePos[1], camera.eyePos[2], padding,
+        camera.lookat[0], camera.lookat[1], camera.lookat[2], padding,
+        camera.up[0], camera.up[1], camera.up[2], padding,
+        camera.constant, padding, padding, padding]);
     device.queue.writeBuffer(uniformBuffer, 0, uniforms);
+
+    console.log("uniforms = " + uniforms);
 
 
      // Insert render pass commands here
-    render(device, context, pipeline, bindGroup);
-
-    // addEventListener("mouse", (event) => { cam_const *= 1.0 + 2.5e-4*event.deltaY; requestAnimationFrame(tick);
-    // });
-    // function tick()
-    // {
-    
-    // uniforms[1] = cam_const;
-    // device.queue.writeBuffer(uniformBuffer, 0, uniforms);
-    // console.log("uniforms = " + uniforms);
-    // render(device, context, pipeline, bindGroup);
-    // } tick();
-
-    
+    render(device, context, pipeline, bindGroup); 
 }
 
 function render(device, context, pipeline, bindGroup)
