@@ -11,18 +11,25 @@
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
 
+const PI = 3.14;
+
 const PLANE_POSITION: vec3f = vec3f(0.0, 0.0, 0.0);
 const PLANE_NORMAL : vec3f = vec3f(0.0, 1.0, 0.0);
 const PLANE_COLOR : vec3f = vec3f(0.1, 0.7, 0.0);
 const SPHERE_CENTER: vec3f = vec3f(0.0, 0.5, 0.0);
 const SPHERE_RADIUS: f32 = 0.3;
-const SPHERE_COLOR: vec3f = vec3f(0.2, 0.2, 0.2);
+const SPHERE_COLOR: vec3f = vec3f(0.0, 0.0, 0.0);
 const TRIANGLE_COLOR: vec3f = vec3f(0.4, 0.3, 0.2);
 const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
     vec3f(-0.2, 0.1, 0.9),  // First vector
     vec3f(0.2, 0.1, 0.9),  // Second vector
     vec3f(-0.2, 0.1, -0.1)   // Third vector
 );
+
+const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
+const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
+
+const DIFFUSE_REFLECTANCE: f32 = 1.0;
 
 
 struct Uniforms {
@@ -55,6 +62,12 @@ struct HitInfo {
     normal: vec3f,
     color: vec3f,
 };
+
+struct Light {
+    L_i: vec3f,
+    w_i: vec3f,
+    dist: f32
+}
 
 fn get_camera_ray(ipcoords: vec2f) -> Ray
 {
@@ -157,6 +170,23 @@ fn intersect_scene(ray: ptr<function, Ray>, hit : ptr<function, HitInfo>) -> boo
     return (*hit).has_hit;
 }
 
+fn sample_point_light(pos: vec3f) -> Light
+{
+    let L_i = LIGHT_INTENSITY / ( length(LIGHT_POSITION - pos) * length(LIGHT_POSITION - pos));
+    let w_i = normalize(LIGHT_POSITION - pos);
+    let dist = length(LIGHT_POSITION - pos);
+    return Light(L_i, w_i, dist);
+}
+
+fn shade(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
+{
+    let light = sample_point_light((*hit).position);
+    let n = normalize((*hit).normal);
+    let L_rd = DIFFUSE_REFLECTANCE / PI * light.L_i * max(dot(n, light.w_i), 0.0);
+    return L_rd * (*hit).color;
+}
+    
+
 
 @vertex
 fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut 
@@ -180,7 +210,7 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     let plane_hit = intersect_scene(&ray,&hit);
     if (plane_hit)
     {
-        return vec4f(hit.color, 1.0);
+        return vec4f(shade(&ray, &hit), 1.0);
     }
     return vec4f(0.1, 0.3, 0.6, 1.0);
 }
