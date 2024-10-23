@@ -32,7 +32,7 @@ const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
 const DIFFUSE_REFLECTANCE: f32 = 0.9;
 const AMBIENT_LIGHT: f32 = 0.1;
 
-const T_MIN = 1.0e-6;
+const T_MIN = 10e-4;
 const T_MAX = 1.0e32;
 
 
@@ -112,12 +112,16 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     let t_1 = -b_2 - sqrt((b_2*b_2)-c);
     let t_2 = -b_2 + sqrt((b_2*b_2)-c);
 
-    var t = 1e32; // Some large number to represent infinity
+    var t = ray.tmax; // Some large number to represent infinity
     if t_1 > 0.0 {
-        t = t_1; // Use t_1 if it's valid
+        if t_1 >= ray.tmin && t_1 <= ray.tmax {
+            t = t_1; // Use t_1 if it's valid
+        }
     }
     if t_2 > 0.0 && t_2 < t {
-        t = t_2; // Use t_2 if it's valid and smaller than current t
+            if t_2 >= ray.tmin && t_2 <= ray.tmax {
+            t = t_2; // Use t_1 if it's valid
+        }   
     }
 
     if t <= ray.tmin || t >= ray.tmax {
@@ -128,9 +132,9 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).has_hit = true;
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
-    (*hit).normal = (*hit).position - center;
+    (*hit).normal = normalize(center - (*hit).position);
     (*hit).color = SPHERE_COLOR;
-    (*hit).shader = 1;
+    (*hit).shader = 3;
     return true;
     
 }
@@ -224,7 +228,12 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 // not used as of P1
 fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
-    return vec3f(1.0, 0.0, 0.0);
+    let light = sample_point_light((*hit).position);
+    let direction = reflect(r.direction, (*hit).normal);
+    *r = Ray((*hit).position, direction, T_MIN, T_MAX);
+    *hit = HitInfo(false, 0.0, vec3f(0.0, 0.0, 0.0), vec3f(0.0, 0.0, 0.0), vec3f(0.0, 0.0, 0.0),0);
+    return (*hit).color;
+
 }
 
 
@@ -245,15 +254,18 @@ fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
 @fragment
 fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
 {
-    let ipcoords = vec2f(coords.x*uniforms.aspect*0.5, coords.y*0.5);
-    var ray = get_camera_ray(ipcoords);
-    var hit = HitInfo(false,0,vec3f(0.0,0.0,0.0),vec3f(0.0,0.0,0.0),vec3f(0.0,0.0,0.0),0);
-    let plane_hit = intersect_scene(&ray,&hit);
-    if (plane_hit)
-    {
-        return vec4f(shade(&ray, &hit), 1.0);
+    const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
+    const max_depth = 10;
+    let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
+    var r = get_camera_ray(uv);
+    var result = vec3f(0.0);
+    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0);
+    for(var i = 0; i < max_depth; i++) {
+    if(intersect_scene(&r, &hit)) { result += shade(&r, &hit); }
+    else { result += bgcolor.rgb; break; }
+    if(hit.has_hit) { break; }
     }
-    return vec4f(0.1, 0.3, 0.6, 1.0);
+    return vec4f(result, bgcolor.a);
 }
     </script>
     Please use a browser that supports HTML5 canvas.
