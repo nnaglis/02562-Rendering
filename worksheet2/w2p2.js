@@ -143,7 +143,8 @@ async function main() {
 
     console.log("uniforms = " + uniforms);
 
-
+    // add default scene to be glass sphere to be as a mirror
+    dropdown1.dispatchEvent(new Event('change'));
      // Insert render pass commands here
     render(device, context, pipeline, bindGroup); 
 }
