@@ -65,9 +65,13 @@ async function main() {
         {
             sphere_shader = 3;
         }
-        if (selectedOption === "Base")
+        else if (selectedOption === "Refraction")
         {
             sphere_shader = 4;
+        }
+        if (selectedOption === "Base")
+        {
+            sphere_shader = 0;
         }
         console.log("sphere_shader = " + sphere_shader);
         animate();
@@ -82,17 +86,17 @@ async function main() {
         {
             plane_triangle_shader = 1;
         }
-        if (selectedOption === "Phong")
+        else if (selectedOption === "Phong")
         {
             plane_triangle_shader = 2;
         }
-        if (selectedOption === "Mirror")
+        else if (selectedOption === "Mirror")
         {
             plane_triangle_shader = 3;
         }
-        if (selectedOption === "Base")
+        else
         {
-            plane_triangle_shader = 4;
+            plane_triangle_shader = 0;
         }
         console.log("plane_triangle_shader = " + plane_triangle_shader);
         animate();
@@ -143,6 +147,8 @@ async function main() {
 
     console.log("uniforms = " + uniforms);
 
+
+    dropdown1.dispatchEvent(new Event('change'));
 
      // Insert render pass commands here
     render(device, context, pipeline, bindGroup); 

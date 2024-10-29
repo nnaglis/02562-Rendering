@@ -122,7 +122,7 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).has_hit = true;
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
-    (*hit).normal = (*hit).position - center;
+    (*hit).normal = normalize((*hit).position - center);
     (*hit).color = SPHERE_COLOR;
     return true;
     
