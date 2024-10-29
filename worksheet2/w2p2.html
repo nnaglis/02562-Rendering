@@ -8,6 +8,22 @@
 </head>
 
 <body>
+<div>
+<label for="options">Glass sphere shader:</label>
+    <select id="sphereOptions" name="sphereOptions">
+        <option value="Lambertian">Lambertian</option>
+        <option value="Phong">Phong</option>
+        <option value="Mirror">Mirror</option>
+        <option value="Base">Base</option>
+    </select>
+<label for="options">Plane/triangle shader:</label>
+    <select id="planeTriangleOptions" name="planeTriangleOptions">
+        <option value="Lambertian">Lambertian</option>
+        <option value="Phong">Phong</option>
+        <option value="Mirror">Mirror</option>
+        <option value="Base">Base</option>
+    </select>
+    <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
 
@@ -42,7 +58,10 @@ struct Uniforms {
     lookAt: vec3<f32>,
     aspect: f32, // Placed next to lookAt to avoid padding
     up: vec3<f32>,
-    padding: f32 // Single padding to align the structure
+    padding: f32,
+    sphere_shader: f32,              // 4 bytes
+    plane_triangle_shader: f32,      // 4 bytes
+    padding2: vec2<f32>,   
 };
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -95,7 +114,7 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, positio
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normal;
     (*hit).color = PLANE_COLOR;
-    (*hit).shader = 1;
+    (*hit).shader = u32(uniforms.plane_triangle_shader);
     return true;
     }
     return false;
@@ -134,7 +153,7 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normalize(center - (*hit).position);
     (*hit).color = SPHERE_COLOR;
-    (*hit).shader = 3;
+    (*hit).shader = u32(uniforms.sphere_shader);
     return true;
     
 }
@@ -165,7 +184,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, v: a
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normal;
     (*hit).color = TRIANGLE_COLOR;
-    (*hit).shader = 1;
+    (*hit).shader = u32(uniforms.plane_triangle_shader);
     return true;
 
 }
@@ -254,6 +273,7 @@ fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
 @fragment
 fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
 {
+    
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
     let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
@@ -265,11 +285,13 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     else { result += bgcolor.rgb; break; }
     if(hit.has_hit) { break; }
     }
+    //return vec4f(uniforms.sphere_shader, uniforms.plane_triangle_shader, 0.0, 1.0);
     return vec4f(result, bgcolor.a);
 }
     </script>
     Please use a browser that supports HTML5 canvas.
     </canvas>
+    </div>
     </body>
 
     </html>
