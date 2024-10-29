@@ -69,6 +69,10 @@ async function main() {
         {
             sphere_shader = 4;
         }
+        else if (selectedOption === "Glossy")
+        {
+            sphere_shader = 5;
+        }
         if (selectedOption === "Base")
         {
             sphere_shader = 0;
