@@ -21,6 +21,8 @@ var plane_triangle_shader = 1;
 var use_repeat = 1;
 var use_linear = 1;
 var use_texture = 1;
+var pixel_subdivision = 1;
+var jitter = new Float32Array(200)
 
 
 async function load_texture(device, filename)
@@ -168,6 +170,19 @@ async function main() {
         animate();
     });
 
+    const pixelSubdivisionSlider = document.getElementById('pixelSubdivision');
+
+    pixelSubdivisionSlider.addEventListener('input', function() {
+        pixel_subdivision = pixelSubdivisionSlider.value;
+        uniforms_ui[5] = pixel_subdivision;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        console.log("pixel_subdivision = " + pixel_subdivision);
+        compute_jitters(jitter, 1/canvas.height, pixel_subdivision);
+        device.queue.writeBuffer(jitterBuffer, 0, jitter);
+        animate();
+    });
+
+
     function animate()
         {
         render(device, context, pipeline, bindGroup);
@@ -195,10 +210,17 @@ async function main() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
     uniformBuffer_ui = device.createBuffer({
-        size: 20,
+        size: 24,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
+        const jitterBuffer = device.createBuffer({
+        size: jitter.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
 
+    compute_jitters(jitter, 1/canvas.height, pixel_subdivision);
+
+    device.queue.writeBuffer(jitterBuffer, 0, jitter);
 
     uniforms_f = new Float32Array([
         camera.eyePos[0], camera.eyePos[1], camera.eyePos[2], camera.cam_const,
@@ -208,7 +230,7 @@ async function main() {
     device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
 
     uniforms_ui = new Uint32Array([
-        sphere_shader, plane_triangle_shader, use_repeat, use_linear, use_texture
+        sphere_shader, plane_triangle_shader, use_repeat, use_linear, use_texture, pixel_subdivision
     ]);
     device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
 
@@ -221,6 +243,7 @@ async function main() {
     { binding: 0, resource: { buffer: uniformBuffer_f } },
     { binding: 1, resource: { buffer: uniformBuffer_ui } },
     { binding: 2, resource: texture.createView() },
+    { binding: 3, resource: { buffer: jitterBuffer } },
     ],
     });
 
@@ -246,6 +269,26 @@ function render(device, context, pipeline, bindGroup)
         pass.end();
         device.queue.submit([encoder.finish()]);
     }
+
+function compute_jitters(jitter, pixelsize, subdivs)
+{
+    const step = pixelsize/subdivs;
+    if(subdivs < 2)
+    {
+        jitter[0] = 0.0;
+        jitter[1] = 0.0;
+    }
+    else 
+    {
+    for(var i = 0; i < subdivs; ++i)
+        for(var j = 0; j < subdivs; ++j) 
+        {
+            const idx = (i*subdivs + j)*2;
+            jitter[idx] = (Math.random() + j)*step - pixelsize*0.5;
+            jitter[idx + 1] = (Math.random() + i)*step - pixelsize*0.5;
+        }
+    }
+}
 
 
 

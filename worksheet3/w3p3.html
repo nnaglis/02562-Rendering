@@ -26,19 +26,25 @@
             <option value="Mirror">Mirror</option>
             <option value="Base">Base</option>
         </select>
+    <div>
+        <select id="addressmode" size="2">
+                <option value="0">clamp-to-edge</option>
+                <option value="1" selected>repeat</option>
+            </select>
+        <select id="filtermode" size="2">
+                <option value="0">nearest</option>
+                <option value="1" selected>linear</option>
+            </select>
 
-    <select id="addressmode" size="2">
-            <option value="0">clamp-to-edge</option>
-            <option value="1" selected>repeat</option>
-        </select>
-    <select id="filtermode" size="2">
-            <option value="0">nearest</option>
-            <option value="1" selected>linear</option>
-        </select>
+        <label for="useTexture">Use Texture:</label>
+        <input type="checkbox" id="useTexture" name="useTexture" value="1" checked>
+        
 
-    <label for="useTexture">Use Texture:</label>
-    <input type="checkbox" id="useTexture" name="useTexture" value="1" checked>
-
+        <label for="pixelSubdivision">Pixel Subdivision:</label>
+        <input type="range" id="pixelSubdivision" name="pixelSubdivision" min="1" max="10" value="1" oninput="this.nextElementSibling.value = this.value">
+        <output>1</output>
+    </div>
+    
     <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
@@ -90,6 +96,7 @@ struct Uniforms_uint {
     use_repeat: u32,
     use_linear: u32,
     use_texture: u32,
+    pixel_subdivision: u32,
 };
 
 
@@ -97,6 +104,7 @@ struct Uniforms_uint {
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<uniform> uniforms_uint : Uniforms_uint;
 @group(0) @binding(2) var my_texture: texture_2d<f32>;
+@group(0) @binding(3) var<storage> jitter: array<vec2f>;
 
 struct VSOut {
     @builtin(position) position : vec4f,
@@ -423,6 +431,7 @@ fn texture(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool, linear: boo
 }
 
 
+
 @vertex
 fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut 
 {
@@ -444,26 +453,38 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     let use_texture = uniforms_uint.use_texture != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
-    let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
-    var r = get_camera_ray(uv);
+    let base_uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
+    // Add jitter to the pixel calculation
+    var pixel_subdivision = uniforms_uint.pixel_subdivision;
     var result = vec3f(0.0);
-    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
-    for(var i = 0; i < max_depth; i++) {
-    if(intersect_scene(&r, &hit, use_repeat, use_linear, use_texture)) { result += shade(&r, &hit); }
-    else { result += bgcolor.rgb; break; }
-    if(hit.has_hit) { break; }
+    for (var i: u32 = 0; i < pixel_subdivision; i++)
+    {
+        for (var j: u32 = 0; j < pixel_subdivision; j++)
+        {
+            let idx = (i*pixel_subdivision + j) * 2;
+            let uv = base_uv + jitter[idx];
+            var r = get_camera_ray(uv);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
+            for(var i = 0; i < max_depth; i++) {
+                if(intersect_scene(&r, &hit, use_repeat, use_linear, use_texture))
+                { 
+                    result += shade(&r, &hit); 
+                }
+                else 
+                { 
+                    result += bgcolor.rgb;
+                    break; 
+                }
+                if(hit.has_hit) 
+                { 
+                    break; 
+                }
+            }
+        }
     }
     
-    var texcolor = vec3f(0.0);
-    if (use_linear)
-    {
-        texcolor = texture_linear(my_texture, uv, use_repeat);
-    }
-    else
-    {
-        texcolor = texture_nearest(my_texture, uv, use_repeat);
-    }
-    return vec4f(result, bgcolor.a);
+    result = result / (f32(pixel_subdivision) * f32(pixel_subdivision));
+    return vec4f(result, 1.0);
 }
     </script>
     Please use a browser that supports HTML5 canvas.
