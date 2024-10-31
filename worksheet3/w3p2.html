@@ -2,9 +2,9 @@
 <html>
 
 <head>
-<title > W3P1</title>
+<title > W3P2</title>
 <script type="text/javascript" src="../common/MV.js"></script>
-<script type = "text/javascript" src = "w3p1.js"></script>
+<script type = "text/javascript" src = "w3p2.js"></script>
 </head>
 
 <body>
@@ -417,14 +417,14 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     //return vec4f(uniforms_uint.sphere_shader, uniforms_uint.plane_triangle_shader, 0.0, 1.0);
     let use_repeat = uniforms_uint.use_repeat != 0;
     let use_linear = uniforms_uint.use_linear != 0;
-    var texcolor = vec3f(0.0);
+
     if (use_linear)
     {
-        texcolor = texture_linear(my_texture, uv, use_repeat);
+        let texcolor = texture_linear(my_texture, uv, use_repeat);
     }
     else
     {
-        texcolor = texture_nearest(my_texture, uv, use_repeat);
+        let texcolor = texture_nearest(my_texture, uv, use_repeat);
     }
     //return vec4f(result, bgcolor.a);
     return vec4f(texcolor, 1.0);
