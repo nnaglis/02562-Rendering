@@ -380,9 +380,6 @@ fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> v
     let texcolor5 = mix(texcolor2, texcolor3, frac.x);
     let texcolor6 = mix(texcolor4, texcolor5, frac.y);
     return texcolor6.rgb;
-
-
-    return texcolor.rgb;
 }
 
 

@@ -4,7 +4,7 @@
 <head>
 <title > W3P1</title>
 <script type="text/javascript" src="../common/MV.js"></script>
-<script type = "text/javascript" src = "w3p1.js"></script>
+<script type = "text/javascript" src = "w3p2.js"></script>
 </head>
 
 <body>
@@ -36,6 +36,9 @@
             <option value="1" selected>linear</option>
         </select>
 
+    <label for="useTexture">Use Texture:</label>
+    <input type="checkbox" id="useTexture" name="useTexture" value="1" checked>
+
     <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
@@ -43,7 +46,6 @@
 const PI = 3.14;
 
 const PLANE_POSITION: vec3f = vec3f(0.0, 0.0, 0.0);
-const PLANE_NORMAL : vec3f = vec3f(0.0, 1.0, 0.0);
 const PLANE_COLOR : vec3f = vec3f(0.1, 0.7, 0.0);
 const SPHERE_CENTER: vec3f = vec3f(0.0, 0.5, 0.0);
 const SPHERE_RADIUS: f32 = 0.3;
@@ -70,6 +72,8 @@ const IOR_AIR = 1.0;
 const SPECULAR_SPHERE: f32 = 0.1;
 const SHININESS_SPHERE: f32 = 42.0;
 
+const TEXTURE_SCALE: f32 = 0.2;
+
 
 struct Uniforms {
     eyePos: vec3<f32>,
@@ -85,7 +89,9 @@ struct Uniforms_uint {
     plane_triangle_shader: u32,
     use_repeat: u32,
     use_linear: u32,
+    use_texture: u32,
 };
+
 
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -116,6 +122,7 @@ struct HitInfo {
     shininess: f32,
     ambient: vec3f,
     diffuse: vec3f,
+    texcoords: vec2f,
 };
 
 struct Light {
@@ -123,6 +130,14 @@ struct Light {
     w_i: vec3f,
     dist: f32
 };
+
+struct Onb {
+    tangent: vec3f,
+    binormal: vec3f,
+    normal: vec3f,
+};
+
+const plane_onb = Onb(vec3f(-1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0));
 
 fn get_camera_ray(ipcoords: vec2f) -> Ray
 {
@@ -133,9 +148,9 @@ fn get_camera_ray(ipcoords: vec2f) -> Ray
     return Ray(uniforms.eyePos, normalize(b1 * ipcoords.x + b2 * ipcoords.y + v * uniforms.const_cam), T_MIN, T_MAX);
 }
 
-fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, position: vec3f, normal: vec3f) -> bool
+fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, plane_position: vec3f, plane_onb : Onb, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool
 {
-    let t = dot( position - ray.origin, normal) / dot(ray.direction,normal);
+    let t = dot( plane_position - ray.origin, plane_onb.normal) / dot(ray.direction,plane_onb.normal);
     if (t > ray.tmin && t < ray.tmax)
     {
     // update hit info
@@ -143,11 +158,24 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, positio
     (*hit).has_hit = true;
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
-    (*hit).normal = normal;
-    (*hit).color = PLANE_COLOR;
+    (*hit).normal = plane_onb.normal;
     (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
+    // calculate texture coordinates
+    let u = dot((*hit).position - plane_position, plane_onb.tangent);
+    let v = dot((*hit).position - plane_position, plane_onb.binormal);
+    (*hit).texcoords = vec2f(u, v)*TEXTURE_SCALE;
+    // get the color from the texture
+    if (use_texture)
+    {
+        (*hit).color = texture(my_texture, (*hit).texcoords, use_repeat, use_linear);
+    }
+    else
+    {
+        (*hit).color = PLANE_COLOR;
+    }
+    
     return true;
     }
     return false;
@@ -226,12 +254,13 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, v: a
 
 }
 
-fn intersect_scene(ray: ptr<function, Ray>, hit : ptr<function, HitInfo>) -> bool
+fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool 
 {
+
 // Define scene data as constants.
 // Call an intersection function for each object.
 // For each intersection found, update (*r).tmax and store additional info about the hit.
-    intersect_plane(ray, hit, PLANE_POSITION, PLANE_NORMAL);
+    intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
     intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
     intersect_triangle(ray, hit, TRIANGLE_VERTICES);
 
@@ -264,9 +293,9 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
     let light = sample_point_light((*hit).position);
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0));
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     var L_o = (*hit).ambient * (*hit).color;
-    if (intersect_scene(&shadow_ray, &shadow_hit))
+    if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
     {
         return L_o;
     }
@@ -281,8 +310,8 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
     let light = sample_point_light((*hit).position);
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0));
-    if (intersect_scene(&shadow_ray, &shadow_hit))
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
+    if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
     {
         return vec3f(0.0, 0.0, 0.0);
     }
@@ -380,9 +409,17 @@ fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> v
     let texcolor5 = mix(texcolor2, texcolor3, frac.x);
     let texcolor6 = mix(texcolor4, texcolor5, frac.y);
     return texcolor6.rgb;
+}
 
-
-    return texcolor.rgb;
+fn texture(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool, linear: bool) -> vec3f {
+    if (linear)
+    {
+        return texture_linear(texture, texcoords, repeat);
+    }
+    else
+    {
+        return texture_nearest(texture, texcoords, repeat);
+    }
 }
 
 
@@ -402,21 +439,21 @@ fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
 @fragment
 fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
 {
-    
+    let use_repeat = uniforms_uint.use_repeat != 0;
+    let use_linear = uniforms_uint.use_linear != 0;
+    let use_texture = uniforms_uint.use_texture != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
     let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
     var r = get_camera_ray(uv);
     var result = vec3f(0.0);
-    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0));
+    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     for(var i = 0; i < max_depth; i++) {
-    if(intersect_scene(&r, &hit)) { result += shade(&r, &hit); }
+    if(intersect_scene(&r, &hit, use_repeat, use_linear, use_texture)) { result += shade(&r, &hit); }
     else { result += bgcolor.rgb; break; }
     if(hit.has_hit) { break; }
     }
-    //return vec4f(uniforms_uint.sphere_shader, uniforms_uint.plane_triangle_shader, 0.0, 1.0);
-    let use_repeat = uniforms_uint.use_repeat != 0;
-    let use_linear = uniforms_uint.use_linear != 0;
+    
     var texcolor = vec3f(0.0);
     if (use_linear)
     {
@@ -426,8 +463,7 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     {
         texcolor = texture_nearest(my_texture, uv, use_repeat);
     }
-    //return vec4f(result, bgcolor.a);
-    return vec4f(texcolor, 1.0);
+    return vec4f(result, bgcolor.a);
 }
     </script>
     Please use a browser that supports HTML5 canvas.

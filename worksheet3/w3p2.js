@@ -16,10 +16,11 @@ const camera = new Camera();
 var uniforms_f, uniforms_ui;
 var uniformBuffer_f, uniformBuffer_ui;
 
-var sphere_shader = 1;
+var sphere_shader = 5;
 var plane_triangle_shader = 1;
 var use_repeat = 1;
 var use_linear = 1;
+var use_texture = 1;
 
 
 async function load_texture(device, filename)
@@ -85,6 +86,25 @@ async function main() {
         requestAnimationFrame(animate);
         console.log("filterMenu.selectedIndex = " + filterMenu.selectedIndex);  
         });
+
+    const useTextureCheckbox = document.getElementById('useTexture');
+    
+    useTextureCheckbox.addEventListener('change', function() {
+        if (useTextureCheckbox.checked)
+        {
+            use_texture = 1;
+        }
+        else
+        {
+            use_texture = 0;
+        }
+        uniforms_ui[4] = use_texture;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        requestAnimationFrame(animate);
+        console.log("use_texture = " + use_texture);
+    });
+        
+        
 
     const dropdown1 = document.getElementById('sphereOptions');
 
@@ -175,7 +195,7 @@ async function main() {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
     uniformBuffer_ui = device.createBuffer({
-        size: 16,
+        size: 20,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
 
@@ -188,7 +208,7 @@ async function main() {
     device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
 
     uniforms_ui = new Uint32Array([
-        sphere_shader, plane_triangle_shader, use_repeat, use_linear,
+        sphere_shader, plane_triangle_shader, use_repeat, use_linear, use_texture
     ]);
     device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
 
