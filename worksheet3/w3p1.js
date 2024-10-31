@@ -13,13 +13,32 @@ class Camera {
 const camera = new Camera();
 
 // Create a variable to store the uniform buffer
-var uniforms;
+var uniforms_f, uniforms_ui;
+var uniformBuffer_f, uniformBuffer_ui;
 
 var sphere_shader = 1;
 var plane_triangle_shader = 1;
+var use_repeat = 1;
+var use_linear = 1;
 
 
-
+async function load_texture(device, filename)
+{
+    const response = await fetch(filename);
+    const blob = await response.blob();
+    const img = await createImageBitmap(blob, { colorSpaceConversion: 'none' });
+    const texture = device.createTexture({
+    size: [img.width, img.height, 1],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    device.queue.copyExternalImageToTexture(
+    { source: img, flipY: true },
+    { texture: texture },
+    { width: img.width, height: img.height },
+    );
+    return texture;
+}
 
 window.onload = function () { main(); }
 async function main() {
@@ -43,9 +62,28 @@ async function main() {
         code: document.getElementById("wgsl").text
     });
 
+    var addressMenu = document.getElementById("addressmode");
+    var filterMenu = document.getElementById("filtermode");     
+
     addEventListener("wheel", (event) => {
         camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
+        uniforms_f[3] = camera.cam_const;
+        device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
+        console.log("camera.cam_const = " + camera.cam_const);
+        animate();
+        });
+
+    addressMenu.addEventListener("click", () => {
+        uniforms_ui[2] = addressMenu.selectedIndex;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
         requestAnimationFrame(animate);
+        console.log("addressMenu.selectedIndex = " + addressMenu.selectedIndex);
+        });
+    filterMenu.addEventListener("click", () => {
+        uniforms_ui[3] = filterMenu.selectedIndex;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        requestAnimationFrame(animate);
+        console.log("filterMenu.selectedIndex = " + filterMenu.selectedIndex);  
         });
 
     const dropdown1 = document.getElementById('sphereOptions');
@@ -77,6 +115,8 @@ async function main() {
         {
             sphere_shader = 0;
         }
+        uniforms_ui[0] = sphere_shader;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
         console.log("sphere_shader = " + sphere_shader);
         animate();
     });
@@ -102,16 +142,14 @@ async function main() {
         {
             plane_triangle_shader = 0;
         }
+        uniforms_ui[1] = plane_triangle_shader;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
         console.log("plane_triangle_shader = " + plane_triangle_shader);
         animate();
     });
 
     function animate()
         {
-        uniforms[3] = camera.cam_const;
-        uniforms[12] = sphere_shader;
-        uniforms[13] = plane_triangle_shader;
-        device.queue.writeBuffer(uniformBuffer, 0, uniforms);
         render(device, context, pipeline, bindGroup);
         }
 
@@ -132,31 +170,45 @@ async function main() {
         },
     });
 
-    const uniformBuffer = device.createBuffer({
-        size: 64,
+    uniformBuffer_f = device.createBuffer({
+        size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
-    const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{
-        binding: 0,
-        resource: { buffer: uniformBuffer } }],
-    });
+
+    uniformBuffer_ui = device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
 
-    uniforms = new Float32Array([
+
+    uniforms_f = new Float32Array([
         camera.eyePos[0], camera.eyePos[1], camera.eyePos[2], camera.cam_const,
         camera.lookat[0], camera.lookat[1], camera.lookat[2], aspect,
         camera.up[0], camera.up[1], camera.up[2], padding,
-        sphere_shader, plane_triangle_shader, padding, padding
     ]);
-    device.queue.writeBuffer(uniformBuffer, 0, uniforms);
+    device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
 
-    console.log("uniforms = " + uniforms);
+    uniforms_ui = new Uint32Array([
+        sphere_shader, plane_triangle_shader, use_repeat, use_linear,
+    ]);
+    device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+
+    //dropdown1.dispatchEvent(new Event('change'));
+
+    const texture = await load_texture(device, "../data/grass.jpg");
+    const bindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+    { binding: 0, resource: { buffer: uniformBuffer_f } },
+    { binding: 1, resource: { buffer: uniformBuffer_ui } },
+    { binding: 2, resource: texture.createView() },
+    ],
+    });
 
 
-    dropdown1.dispatchEvent(new Event('change'));
-
-     // Insert render pass commands here
-    render(device, context, pipeline, bindGroup); 
+    animate();
 }
+
+
 
 function render(device, context, pipeline, bindGroup)
     {

@@ -9,22 +9,33 @@
 
 <body>
 <div>
-<label for="options">Glass sphere shader:</label>
-    <select id="sphereOptions" name="sphereOptions">
-        <option value="Lambertian">Lambertian</option>
-        <option value="Phong">Phong</option>
-        <option value="Mirror">Mirror</option>
-        <option value="Refraction">Refraction</option>
-        <option value="Glossy" selected>Glossy</option>
-        <option value="Base">Base</option>
-    </select>
-<label for="options">Plane/triangle shader:</label>
-    <select id="planeTriangleOptions" name="planeTriangleOptions">
-        <option value="Lambertian">Lambertian</option>
-        <option value="Phong">Phong</option>
-        <option value="Mirror">Mirror</option>
-        <option value="Base">Base</option>
-    </select>
+    <label for="options">Glass sphere shader:</label>
+        <select id="sphereOptions" name="sphereOptions">
+            <option value="Lambertian">Lambertian</option>
+            <option value="Phong">Phong</option>
+            <option value="Mirror">Mirror</option>
+            <option value="Refraction">Refraction</option>
+            <option value="Glossy" selected>Glossy</option>
+            <option value="Base">Base</option>
+        </select>
+
+    <label for="options">Plane/triangle shader:</label>
+        <select id="planeTriangleOptions" name="planeTriangleOptions">
+            <option value="Lambertian">Lambertian</option>
+            <option value="Phong">Phong</option>
+            <option value="Mirror">Mirror</option>
+            <option value="Base">Base</option>
+        </select>
+
+    <select id="addressmode" size="2">
+            <option value="0">clamp-to-edge</option>
+            <option value="1" selected>repeat</option>
+        </select>
+    <select id="filtermode" size="2">
+            <option value="0">nearest</option>
+            <option value="1" selected>linear</option>
+        </select>
+
     <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
@@ -67,12 +78,19 @@ struct Uniforms {
     aspect: f32, // Placed next to lookAt to avoid padding
     up: vec3<f32>,
     padding: f32,
-    sphere_shader: f32,              // 4 bytes
-    plane_triangle_shader: f32,      // 4 bytes
-    padding2: vec2<f32>,   
 };
 
+struct Uniforms_uint {
+    sphere_shader: u32,
+    plane_triangle_shader: u32,
+    use_repeat: u32,
+    use_linear: u32,
+};
+
+
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+@group(0) @binding(1) var<uniform> uniforms_uint : Uniforms_uint;
+@group(0) @binding(2) var my_texture: texture_2d<f32>;
 
 struct VSOut {
     @builtin(position) position : vec4f,
@@ -127,7 +145,7 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, positio
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normal;
     (*hit).color = PLANE_COLOR;
-    (*hit).shader = u32(uniforms.plane_triangle_shader);
+    (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     return true;
@@ -168,7 +186,7 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normalize((*hit).position - center);
     (*hit).color = SPHERE_COLOR;
-    (*hit).shader = u32(uniforms.sphere_shader);
+    (*hit).shader = u32(uniforms_uint.sphere_shader);
     (*hit).specular = SPECULAR_SPHERE;
     (*hit).shininess = SHININESS_SPHERE;
     return true;
@@ -201,7 +219,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, v: a
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normal;
     (*hit).color = TRIANGLE_COLOR;
-    (*hit).shader = u32(uniforms.plane_triangle_shader);
+    (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     return true;
@@ -337,9 +355,35 @@ fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     return phong_result + refraction_result;
 }
 
+fn texture_nearest(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec3f {
+    let res = textureDimensions(texture);
+    let st = select(clamp(texcoords, vec2f(0), vec2f(1)), texcoords - floor(texcoords), repeat);
+    let ab = st*vec2f(res);
+    let UV = vec2u(ab + 0.5) % res;
+    let texcolor = textureLoad(texture, UV, 0);
+    return texcolor.rgb;
+}
 
-    
+fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec3f {
+    let res = textureDimensions(texture);
+    let st = select(clamp(texcoords, vec2f(0), vec2f(1)), texcoords - floor(texcoords), repeat);
+    let ab = st*vec2f(res);
+    // find the four nearest texels
+    let UV = vec2u(ab);
+    let texcolor = textureLoad(texture, UV, 0);
+    let texcolor1 = textureLoad(texture, vec2u(UV.x+1, UV.y), 0);
+    let texcolor2 = textureLoad(texture, vec2u(UV.x, UV.y+1), 0);
+    let texcolor3 = textureLoad(texture, vec2u(UV.x+1, UV.y+1), 0);
+    // interpolate between the four texels
+    let frac = ab - vec2f(UV);
+    let texcolor4 = mix(texcolor, texcolor1, frac.x);
+    let texcolor5 = mix(texcolor2, texcolor3, frac.x);
+    let texcolor6 = mix(texcolor4, texcolor5, frac.y);
+    return texcolor6.rgb;
 
+
+    return texcolor.rgb;
+}
 
 
 @vertex
@@ -370,8 +414,20 @@ fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
     else { result += bgcolor.rgb; break; }
     if(hit.has_hit) { break; }
     }
-    //return vec4f(uniforms.sphere_shader, uniforms.plane_triangle_shader, 0.0, 1.0);
-    return vec4f(result, bgcolor.a);
+    //return vec4f(uniforms_uint.sphere_shader, uniforms_uint.plane_triangle_shader, 0.0, 1.0);
+    let use_repeat = uniforms_uint.use_repeat != 0;
+    let use_linear = uniforms_uint.use_linear != 0;
+
+    if (use_linear)
+    {
+        let texcolor = texture_linear(my_texture, uv, use_repeat);
+    }
+    else
+    {
+        let texcolor = texture_nearest(my_texture, uv, use_repeat);
+    }
+    //return vec4f(result, bgcolor.a);
+    return vec4f(texcolor, 1.0);
 }
     </script>
     Please use a browser that supports HTML5 canvas.
