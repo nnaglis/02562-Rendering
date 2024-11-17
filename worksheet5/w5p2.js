@@ -128,43 +128,6 @@ async function main() {
         requestAnimationFrame(animate);
         console.log("use_texture = " + use_texture);
     });
-        
-        
-
-    const dropdown1 = document.getElementById('sphereOptions');
-
-    // Add an event listener for the 'change' event
-    dropdown1.addEventListener('change', function() {
-        const selectedOption = dropdown1.value;
-        if (selectedOption === "Lambertian")
-        {
-            sphere_shader = 1;
-        }
-        if (selectedOption === "Phong")
-        {
-            sphere_shader = 2;
-        }
-        if (selectedOption === "Mirror")
-        {
-            sphere_shader = 3;
-        }
-        else if (selectedOption === "Refraction")
-        {
-            sphere_shader = 4;
-        }
-        else if (selectedOption === "Glossy")
-        {
-            sphere_shader = 5;
-        }
-        if (selectedOption === "Base")
-        {
-            sphere_shader = 0;
-        }
-        uniforms_ui[0] = sphere_shader;
-        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
-        console.log("sphere_shader = " + sphere_shader);
-        animate();
-    });
 
     const dropdown2 = document.getElementById('planeTriangleOptions');
 

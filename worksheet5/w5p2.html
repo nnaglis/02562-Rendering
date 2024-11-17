@@ -10,16 +10,6 @@
 
 <body>
 <div>
-    <label for="options" ></label>
-        <select id="sphereOptions" name="sphereOptions" style="display: none;">
-            <option value="Lambertian">Lambertian</option>
-            <option value="Phong">Phong</option>
-            <option value="Mirror">Mirror</option>
-            <option value="Refraction">Refraction</option>
-            <option value="Glossy" selected>Glossy</option>
-            <option value="Base">Base</option>
-        </select>
-
     <label for="options">Plane/triangle shader:</label>
         <select id="planeTriangleOptions" name="planeTriangleOptions">
             <option value="Lambertian">Lambertian</option>
@@ -163,7 +153,6 @@ fn get_camera_ray(ipcoords: vec2f) -> Ray
 
 fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, plane_position: vec3f, plane_onb : Onb, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool
 {
-    return false;
     let t = dot( plane_position - ray.origin, plane_onb.normal) / dot(ray.direction,plane_onb.normal);
     if (t > ray.tmin && t < ray.tmax)
     {
@@ -176,6 +165,8 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, plane_p
     (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
+    (*hit).specular = 1.0;
+    (*hit).shininess = 100;
     // calculate texture coordinates
     let u = dot((*hit).position - plane_position, plane_onb.tangent);
     let v = dot((*hit).position - plane_position, plane_onb.binormal);
@@ -353,7 +344,7 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
             return vec3f(0.0);
         }
     }
-    let k_d = (*hit).diffuse / PI;
+    let k_d = (*hit).diffuse / PI * (*hit).color;
     let k_s = (*hit).specular * ((*hit).shininess + 2.0) / (2.0 * PI);
     let n = normalize((*hit).normal);
     let w_r = reflect(-light.w_i, n);
