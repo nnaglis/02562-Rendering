@@ -10,8 +10,8 @@
 
 <body>
 <div>
-    <label for="options">Glass sphere shader:</label>
-        <select id="sphereOptions" name="sphereOptions">
+    <label for="options" ></label>
+        <select id="sphereOptions" name="sphereOptions" style="display: none;">
             <option value="Lambertian">Lambertian</option>
             <option value="Phong">Phong</option>
             <option value="Mirror">Mirror</option>
@@ -23,7 +23,7 @@
     <label for="options">Plane/triangle shader:</label>
         <select id="planeTriangleOptions" name="planeTriangleOptions">
             <option value="Lambertian">Lambertian</option>
-            <option value="Phong">Phong</option>
+            <option value="Phong" selected>Phong</option>
             <option value="Mirror">Mirror</option>
             <option value="Base">Base</option>
         </select>
@@ -47,7 +47,7 @@
     </div>
     
     <br>
-<canvas id = "webgpu-canvas" width = "512" height = "512">
+<canvas id = "webgpu-canvas" width = "800" height = "450">
 <script id = "wgsl" type = "x-shader">
 
 const PI = 3.14;
@@ -57,7 +57,7 @@ const PLANE_COLOR : vec3f = vec3f(0.1, 0.7, 0.0);
 const SPHERE_CENTER: vec3f = vec3f(0.0, 0.5, 0.0);
 const SPHERE_RADIUS: f32 = 0.3;
 const SPHERE_COLOR: vec3f = vec3f(0.0, 0.0, 0.0);
-const TRIANGLE_COLOR: vec3f = vec3f(0.4, 0.3, 0.2);
+const TRIANGLE_COLOR: vec3f = vec3f(0.9, 0.9, 0.9);
 const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
     vec3f(-0.2, 0.1, 0.9),  // First vector
     vec3f(0.2, 0.1, 0.9),  // Second vector
@@ -65,6 +65,7 @@ const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
 );
 
 const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
+const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(-1.0);
 const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
 
 const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
@@ -77,7 +78,7 @@ const IOR_GLASS = 1.5;
 const IOR_AIR = 1.0;
 
 const SPECULAR_SPHERE: f32 = 0.1;
-const SHININESS_SPHERE: f32 = 42.0;
+const SHININESS_SPHERE: f32 = 2.0;
 
 const TEXTURE_SCALE: f32 = 0.2;
 
@@ -162,6 +163,7 @@ fn get_camera_ray(ipcoords: vec2f) -> Ray
 
 fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, plane_position: vec3f, plane_onb : Onb, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool
 {
+    return false;
     let t = dot( plane_position - ray.origin, plane_onb.normal) / dot(ray.direction,plane_onb.normal);
     if (t > ray.tmin && t < ray.tmax)
     {
@@ -263,6 +265,8 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
+    (*hit).specular = SPECULAR_SPHERE;
+    (*hit).shininess = SHININESS_SPHERE;
     return true;
 
 }
@@ -274,7 +278,7 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_rep
 // Call an intersection function for each object.
 // For each intersection found, update (*r).tmax and store additional info about the hit.
     intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
-    intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
+    //intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
 
     for (var i: u32 = 0; i < arrayLength(&meshFaces); i = i + 1) {
         var temp_hit = *hit;
@@ -296,6 +300,11 @@ fn sample_point_light(pos: vec3f) -> Light
     return Light(L_i, w_i, dist);
 }
 
+fn sample_directional_light() -> Light
+{
+    return Light(LIGHT_INTENSITY, normalize(-DIRECTIONAL_LIGHT_DIRECTION), T_MAX);
+}
+
 
 
 fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
@@ -312,13 +321,17 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 
 fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
-    let light = sample_point_light((*hit).position);
+    //let light = sample_point_light((*hit).position);
+    let light = sample_directional_light();
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     var L_o = (*hit).ambient * (*hit).color;
     if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
     {
-        return L_o;
+        if ((shadow_hit.dist) < (*hit).dist)
+        {
+            return L_o;
+        }
     }
     let n = normalize((*hit).normal);
     let L_rd = (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color;
@@ -329,21 +342,25 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 //not used as of P1
 fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
-    let light = sample_point_light((*hit).position);
+    //let light = sample_point_light((*hit).position);
+    let light = sample_directional_light();
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
     {
-        return vec3f(0.0, 0.0, 0.0);
+        if ((shadow_hit.dist) < (*hit).dist)
+        {
+            return vec3f(0.0);
+        }
     }
     let k_d = (*hit).diffuse / PI;
     let k_s = (*hit).specular * ((*hit).shininess + 2.0) / (2.0 * PI);
     let n = normalize((*hit).normal);
     let w_r = reflect(-light.w_i, n);
     let w_o = -r.direction;
-    let L_r = light.L_i * ( k_s * pow(max(dot(w_r, w_o), 0.0), (*hit).shininess)) * dot(n, light.w_i);
-
+    let L_r = light.L_i * (k_d+ k_s * pow(max(dot(w_r, w_o), 0.0), (*hit).shininess)) * dot(n, light.w_i);
     return L_r;
+   // return test_L;
 }
 
 fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f

@@ -24,10 +24,10 @@ const triangle = new Triangle(
     
 
 class Camera {
-    eyePos = vec3(2.0, 1.5, 2.0);
-    lookat = vec3(0.0, 0.5, 0.0);
+    eyePos = vec3(0.15, 1.5, 10.0);
+    lookat = vec3(0.15, 1.5, 0.0);
     up = vec3(0.0, 1.0, 0.0);
-    cam_const = 1.0;
+    cam_const = 2.5;
 };
 
 
@@ -40,7 +40,7 @@ var uniforms_f, uniforms_ui;
 var uniformBuffer_f, uniformBuffer_ui;
 
 var sphere_shader = 5;
-var plane_triangle_shader = 1;
+var plane_triangle_shader = 2;
 var use_repeat = 1;
 var use_linear = 1;
 var use_texture = 1;
@@ -259,21 +259,26 @@ async function main() {
 
     //dropdown1.dispatchEvent(new Event('change'));
 
-    // Pad each vertex to have 4 components for 16-byte alignment
-    var alignedVertices = triangle.vertices.map(v => {
-        return [v[0], v[1], v[2], 1.0]; // Add padding component
-    });
-    console.log("alignedVertices = ", alignedVertices);
+        // // Pad each vertex to have 4 components for 16-byte alignment
+        // var alignedVertices = triangle.vertices.map(v => {
+        //     return [v[0], v[1], v[2], 1.0]; // Add padding component
+        // });
+        // console.log("alignedVertices = ", alignedVertices);
 
-    // Flatten the array and convert it to a Float32Array
-    alignedVertices = new Float32Array(alignedVertices.flat());
-    console.log("flattened alignedVertices = ", alignedVertices);
+        // // Flatten the array and convert it to a Float32Array
+        // alignedVertices = new Float32Array(alignedVertices.flat());
+        // console.log("flattened alignedVertices = ", alignedVertices);
 
 
-    var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
+        // var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
+
+    const obj_filename = '../data/objects/teapot.obj';
+    const drawingInfo = await readOBJFile(obj_filename, 1, true);
+
+    console.log("drawingInfo = ", drawingInfo);
     
-    var positionsBuffer = set_up_position_buffer(device, alignedVertices);
-    var indexBuffer = set_up_index_buffer(device, alignedIndices);
+    var positionsBuffer = set_up_position_buffer(device, drawingInfo.vertices);
+    var indexBuffer = set_up_index_buffer(device, drawingInfo.indices);
 
     const texture = await load_texture(device, "../data/grass.jpg");
     const bindGroup = device.createBindGroup({
@@ -333,6 +338,7 @@ function compute_jitters(jitter, pixelsize, subdivs)
 
 function set_up_position_buffer(device, vertices)
 {
+    console.log("vertices = ", vertices);
     const positionsBuffer = device.createBuffer({
         size: vertices.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
@@ -343,6 +349,7 @@ function set_up_position_buffer(device, vertices)
 
 function set_up_index_buffer(device, indices)
 {
+    console.log("indices = ", indices);
     const indexBuffer = device.createBuffer({
         size: indices.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
