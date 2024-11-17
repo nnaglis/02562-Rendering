@@ -4,10 +4,10 @@ const padding = 0.0;
 
 
 class Camera {
-    eyePos = vec3(0.15, 1.5, 10.0);
-    lookat = vec3(0.15, 1.5, 0.0);
+    eyePos = vec3(277.0, 275.0, -570.0);
+    lookat = vec3(277.0, 275.0, 0.0);
     up = vec3(0.0, 1.0, 0.0);
-    cam_const = 2.5;
+    cam_const = 1.0;
 };
 
 
@@ -20,7 +20,7 @@ var uniforms_f, uniforms_ui;
 var uniformBuffer_f, uniformBuffer_ui;
 
 var sphere_shader = 5;
-var plane_triangle_shader = 2;
+var plane_triangle_shader = 0;
 var use_repeat = 1;
 var use_linear = 1;
 var use_texture = 1;
@@ -172,14 +172,17 @@ async function main() {
     });
 
     uniformBuffer_f = device.createBuffer({
+        label: 'uniforms_f',
         size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
     uniformBuffer_ui = device.createBuffer({
+        label: 'uniforms_ui',
         size: 24,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
         const jitterBuffer = device.createBuffer({
+        label: 'jitter',
         size: jitter.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
         });
@@ -215,15 +218,20 @@ async function main() {
 
         // var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
 
-    const obj_filename = '../data/objects/teapot.obj';
+    const obj_filename = '../data/objects/CornellBoxWithBlocks.obj';
     const drawingInfo = await readOBJFile(obj_filename, 1, true);
+    console.log(drawingInfo.materials)
+    console.log(drawingInfo.mat_indices)
+    console.log(drawingInfo.light_indices)
 
     console.log("drawingInfo = ", drawingInfo);
     
     var positionsBuffer = set_up_position_buffer(device, drawingInfo.vertices);
     var indexBuffer = set_up_index_buffer(device, drawingInfo.indices);
     var normalsBuffer = set_up_normal_buffer(device, drawingInfo.normals);
-
+    var materialsBuffer = set_up_materials_buffer(device, drawingInfo.materials);
+     var mat_indicesBuffer = set_up_material_indices_buffer(device, drawingInfo.mat_indices);
+    
 
     const texture = await load_texture(device, "../data/grass.jpg");
     const bindGroup = device.createBindGroup({
@@ -236,6 +244,8 @@ async function main() {
     { binding: 4, resource: { buffer: positionsBuffer } },
     { binding: 5, resource: { buffer: indexBuffer } },
     { binding: 6, resource: { buffer: normalsBuffer } },
+    { binding: 7, resource: { buffer: materialsBuffer } },
+    { binding: 8, resource: { buffer: mat_indicesBuffer } },
     ],
     });
 
@@ -286,6 +296,7 @@ function set_up_position_buffer(device, vertices)
 {
     console.log("vertices = ", vertices);
     const positionsBuffer = device.createBuffer({
+        label: 'positions',
         size: vertices.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
         });
@@ -297,6 +308,7 @@ function set_up_index_buffer(device, indices)
 {
     console.log("indices = ", indices);
     const indexBuffer = device.createBuffer({
+        label: 'indices',
         size: indices.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
         });
@@ -308,11 +320,52 @@ function set_up_normal_buffer(device, normals)
 {
     console.log("normals = ", normals);
     const normalsBuffer = device.createBuffer({
+        label: 'normals',
         size: normals.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
         });
     device.queue.writeBuffer(normalsBuffer, 0, normals);
     return normalsBuffer;
+}
+
+function set_up_materials_buffer(device, materials)
+{
+    var materialData = [];
+    // Add padding to ensure alignment
+    materials.forEach(material => {
+    // Color (4 floats, 16 bytes)
+    materialData.push(material.color.r, material.color.g, material.color.b, material.color.a);
+    // Emission (4 floats, 16 bytes)
+    materialData.push(material.emission.r, material.emission.g, material.emission.b, material.emission.a);
+    // Specular (4 floats, 16 bytes)
+    materialData.push(material.specular.r, material.specular.g, material.specular.b, material.specular.a);
+    // Illumination (1 float, needs padding to align to 16 bytes)
+    materialData.push(material.illum);  // Illum will be aligned with 4-byte padding
+    // Add padding for proper alignment (1 float for padding, 4 bytes)
+    materialData.push(0.0,0.0,0.0);  // Add padding to align the next Color struct
+  });
+
+    materialData = new Float32Array(materialData);
+    console.log("materialData = ", materialData);
+    console.log("materialData.length = ", materialData.length);
+    const materialsBuffer = device.createBuffer({
+        label: 'materials',
+        size: materialData.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(materialsBuffer, 0, materialData);
+    return materialsBuffer;
+}
+
+function set_up_material_indices_buffer(device, mat_indices)
+{
+    console.log("mat_indices = ", mat_indices);
+    const mat_indicesBuffer = device.createBuffer({
+        size: mat_indices.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(mat_indicesBuffer, 0, mat_indices);
+    return mat_indicesBuffer;
 }
 
 

@@ -13,9 +13,9 @@
     <label for="options">Plane/triangle shader:</label>
         <select id="planeTriangleOptions" name="planeTriangleOptions">
             <option value="Lambertian">Lambertian</option>
-            <option value="Phong" selected>Phong</option>
+            <option value="Phong">Phong</option>
             <option value="Mirror">Mirror</option>
-            <option value="Base">Base</option>
+            <option value="Base" selected>Base</option>
         </select>
     <div>
         <select id="addressmode" size="2">
@@ -37,7 +37,7 @@
     </div>
     
     <br>
-<canvas id = "webgpu-canvas" width = "800" height = "450">
+<canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
 
 const PI = 3.14;
@@ -91,6 +91,14 @@ struct Uniforms_uint {
     pixel_subdivision: u32,
 };
 
+struct Material {
+    color: vec3<f32>,
+    emission: vec3<f32>,
+    specular: vec3<f32>,
+    illum: f32,
+    padding3: vec3<f32>,
+};
+
 
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -102,6 +110,8 @@ var<storage> vPositions : array<vec3f>;
 @group(0) @binding(5)
 var<storage> meshFaces : array<vec3u>;
 @group(0) @binding(6) var<storage> vNormals : array<vec3f>;
+@group(0) @binding(7) var<storage> materials : array<Material>;
+@group(0) @binding(8) var<storage> material_indices : array<u32>;
 struct VSOut {
     @builtin(position) position : vec4f,
     @location(0) coords : vec2f,
@@ -135,14 +145,6 @@ struct Light {
     dist: f32
 };
 
-struct Onb {
-    tangent: vec3f,
-    binormal: vec3f,
-    normal: vec3f,
-};
-
-const plane_onb = Onb(vec3f(-1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0));
-
 fn get_camera_ray(ipcoords: vec2f) -> Ray
 {
     let v = normalize(uniforms.lookAt - uniforms.eyePos);
@@ -152,40 +154,6 @@ fn get_camera_ray(ipcoords: vec2f) -> Ray
     return Ray(uniforms.eyePos, normalize(b1 * ipcoords.x + b2 * ipcoords.y + v * uniforms.const_cam), T_MIN, T_MAX);
 }
 
-fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, plane_position: vec3f, plane_onb : Onb, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool
-{
-    let t = dot( plane_position - ray.origin, plane_onb.normal) / dot(ray.direction,plane_onb.normal);
-    if (t > ray.tmin && t < ray.tmax)
-    {
-    // update hit info
-    (*ray).tmax = t;
-    (*hit).has_hit = true;
-    (*hit).dist = t;
-    (*hit).position = ray.origin + t * ray.direction;
-    (*hit).normal = plane_onb.normal;
-    (*hit).shader = uniforms_uint.plane_triangle_shader;
-    (*hit).ambient = AMBIENT_LIGHT;
-    (*hit).diffuse = DIFFUSE_REFLECTANCE;
-    (*hit).specular = 1.0;
-    (*hit).shininess = 100;
-    // calculate texture coordinates
-    let u = dot((*hit).position - plane_position, plane_onb.tangent);
-    let v = dot((*hit).position - plane_position, plane_onb.binormal);
-    (*hit).texcoords = vec2f(u, v)*TEXTURE_SCALE;
-    // get the color from the texture
-    if (use_texture)
-    {
-        (*hit).color = texture(my_texture, (*hit).texcoords, use_repeat, use_linear);
-    }
-    else
-    {
-        (*hit).color = PLANE_COLOR;
-    }
-    
-    return true;
-    }
-    return false;
-}
 
 fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center: vec3f, radius: f32) -> bool
 {
@@ -227,9 +195,10 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     
 }
 
-fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face: vec3u) -> bool
+fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, faceIndex: u32, use_texture: bool, use_repeat: bool, use_linear: bool) -> bool
     
 {
+    let face = meshFaces[faceIndex];
     let e0 = vPositions[face[1]] - vPositions[face[0]];
     let e1 = vPositions[face[2]] - vPositions[face[0]];
 
@@ -248,15 +217,24 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     {
         return false;
     }
+
+    if (use_texture)
+    {
+        //Not implemented
+        let uv = vec2f(0.0);
+
+        (*hit).color = texture(my_texture, (*hit).texcoords, use_repeat, use_linear);
+    }
+
     //update hit info
     (*ray).tmax = t;
     (*hit).has_hit = true;
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = weighted_normal;
-    (*hit).color = TRIANGLE_COLOR;
+    (*hit).color = materials[material_indices[faceIndex]].color; 
     (*hit).shader = uniforms_uint.plane_triangle_shader;
-    (*hit).ambient = AMBIENT_LIGHT;
+    (*hit).ambient = materials[material_indices[faceIndex]].emission;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     (*hit).specular = SPECULAR_SPHERE;
     (*hit).shininess = SHININESS_SPHERE;
@@ -270,12 +248,12 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_rep
 // Define scene data as constants.
 // Call an intersection function for each object.
 // For each intersection found, update (*r).tmax and store additional info about the hit.
-    intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
+    //intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
     //intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
 
-    for (var i: u32 = 0; i < arrayLength(&meshFaces); i = i + 1) {
+    for (var faceIndex: u32 = 0; faceIndex < arrayLength(&meshFaces); faceIndex = faceIndex + 1) {
         var temp_hit = *hit;
-        if (intersect_triangle(ray, &temp_hit, meshFaces[i])) {
+        if (intersect_triangle(ray, &temp_hit, faceIndex, use_texture, use_repeat, use_linear)) {
             if (!(*hit).has_hit || temp_hit.dist < (*hit).dist) {
                 *hit = temp_hit;
             }
@@ -308,7 +286,7 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
         case 3 { return mirror(r, hit); }
         case 4 { return refraction(r, hit); }
         case 5 { return glossy(r, hit); }
-        case default { return (*hit).color; }
+        case default { return (*hit).color + (*hit).ambient; }
     }
 }
 
