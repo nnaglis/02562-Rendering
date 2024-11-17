@@ -61,14 +61,14 @@ const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
 const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
 const AMBIENT_LIGHT: vec3f = vec3f(0.1);
 
-const T_MIN = 10e-4;
+const T_MIN = 10e-2;
 const T_MAX = 1.0e32;
 
 const IOR_GLASS = 1.5;
 const IOR_AIR = 1.0;
 
 const SPECULAR_SPHERE: f32 = 0.1;
-const SHININESS_SPHERE: f32 = 2.0;
+const SHININESS_SPHERE: f32 = 6.0;
 
 const TEXTURE_SCALE: f32 = 0.2;
 
@@ -101,6 +101,7 @@ struct Uniforms_uint {
 var<storage> vPositions : array<vec3f>;
 @group(0) @binding(5)
 var<storage> meshFaces : array<vec3u>;
+@group(0) @binding(6) var<storage> vNormals : array<vec3f>;
 struct VSOut {
     @builtin(position) position : vec4f,
     @location(0) coords : vec2f,
@@ -241,6 +242,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     {
         return false;
     }
+    let weighted_normal = normalize( vNormals[face[0]] * (1.0 - beta - gamma) + vNormals[face[1]] * beta + vNormals[face[2]] * gamma);   
     let t = dot((vPositions[face[0]] - ray.origin), normal) / dot(ray.direction,normal);
     if  (t <= ray.tmin || t >= ray.tmax)
     {
@@ -251,7 +253,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     (*hit).has_hit = true;
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
-    (*hit).normal = normal;
+    (*hit).normal = weighted_normal;
     (*hit).color = TRIANGLE_COLOR;
     (*hit).shader = uniforms_uint.plane_triangle_shader;
     (*hit).ambient = AMBIENT_LIGHT;

@@ -3,26 +3,6 @@
 const padding = 0.0;
 
 
-// Define Triangle class with face indices as vec3u
-class Triangle {
-    constructor(vertices, faceIndices) {
-        this.vertices = vertices; // Array of vec3f
-        this.faceIndices = faceIndices; // Array of vec3u
-    }
-}
-
-// Create the Triangle object
-const triangle = new Triangle(
-    [
-        vec3(-0.2, 0.1, 0.9),
-        vec3(0.2, 0.1, 0.9),
-        vec3(-0.2, 0.1, -0.1)
-    ],
-        [0, 1, 2 ,0]
-);
-
-    
-
 class Camera {
     eyePos = vec3(0.15, 1.5, 10.0);
     lookat = vec3(0.15, 1.5, 0.0);
@@ -92,11 +72,11 @@ async function main() {
     var filterMenu = document.getElementById("filtermode");     
 
     addEventListener("wheel", (event) => {
-        camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
-        uniforms_f[3] = camera.cam_const;
-        device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
+        //camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
+        //uniforms_f[3] = camera.cam_const;
+        //device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
         console.log("camera.cam_const = " + camera.cam_const);
-        animate();
+        //animate();
         });
 
     addressMenu.addEventListener("click", () => {
@@ -242,6 +222,8 @@ async function main() {
     
     var positionsBuffer = set_up_position_buffer(device, drawingInfo.vertices);
     var indexBuffer = set_up_index_buffer(device, drawingInfo.indices);
+    var normalsBuffer = set_up_normal_buffer(device, drawingInfo.normals);
+
 
     const texture = await load_texture(device, "../data/grass.jpg");
     const bindGroup = device.createBindGroup({
@@ -253,6 +235,7 @@ async function main() {
     { binding: 3, resource: { buffer: jitterBuffer } },
     { binding: 4, resource: { buffer: positionsBuffer } },
     { binding: 5, resource: { buffer: indexBuffer } },
+    { binding: 6, resource: { buffer: normalsBuffer } },
     ],
     });
 
@@ -319,6 +302,17 @@ function set_up_index_buffer(device, indices)
         });
     device.queue.writeBuffer(indexBuffer, 0, indices);
     return indexBuffer;
+}
+
+function set_up_normal_buffer(device, normals)
+{
+    console.log("normals = ", normals);
+    const normalsBuffer = device.createBuffer({
+        size: normals.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(normalsBuffer, 0, normals);
+    return normalsBuffer;
 }
 
 
