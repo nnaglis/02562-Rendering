@@ -3,6 +3,26 @@
 const padding = 0.0;
 
 
+// Define Triangle class with face indices as vec3u
+class Triangle {
+    constructor(vertices, faceIndices) {
+        this.vertices = vertices; // Array of vec3f
+        this.faceIndices = faceIndices; // Array of vec3u
+    }
+}
+
+// Create the Triangle object
+const triangle = new Triangle(
+    [
+        vec3(-0.2, 0.1, 0.9),
+        vec3(0.2, 0.1, 0.9),
+        vec3(-0.2, 0.1, -0.1)
+    ],
+        [0, 1, 2 ,0]
+);
+
+    
+
 class Camera {
     eyePos = vec3(2.0, 1.5, 2.0);
     lookat = vec3(0.0, 0.5, 0.0);
@@ -239,6 +259,22 @@ async function main() {
 
     //dropdown1.dispatchEvent(new Event('change'));
 
+    // Pad each vertex to have 4 components for 16-byte alignment
+    var alignedVertices = triangle.vertices.map(v => {
+        return [v[0], v[1], v[2], 1.0]; // Add padding component
+    });
+    console.log("alignedVertices = ", alignedVertices);
+
+    // Flatten the array and convert it to a Float32Array
+    alignedVertices = new Float32Array(alignedVertices.flat());
+    console.log("flattened alignedVertices = ", alignedVertices);
+
+
+    var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
+    
+    var positionsBuffer = set_up_position_buffer(device, alignedVertices);
+    var indexBuffer = set_up_index_buffer(device, alignedIndices);
+
     const texture = await load_texture(device, "../data/grass.jpg");
     const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -247,6 +283,8 @@ async function main() {
     { binding: 1, resource: { buffer: uniformBuffer_ui } },
     { binding: 2, resource: texture.createView() },
     { binding: 3, resource: { buffer: jitterBuffer } },
+    { binding: 4, resource: { buffer: positionsBuffer } },
+    { binding: 5, resource: { buffer: indexBuffer } },
     ],
     });
 
@@ -291,6 +329,26 @@ function compute_jitters(jitter, pixelsize, subdivs)
             jitter[idx + 1] = (Math.random() + i)*step - pixelsize*0.5;
         }
     }
+}
+
+function set_up_position_buffer(device, vertices)
+{
+    const positionsBuffer = device.createBuffer({
+        size: vertices.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(positionsBuffer, 0, vertices);
+    return positionsBuffer;
+}
+
+function set_up_index_buffer(device, indices)
+{
+    const indexBuffer = device.createBuffer({
+        size: indices.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(indexBuffer, 0, indices);
+    return indexBuffer;
 }
 
 

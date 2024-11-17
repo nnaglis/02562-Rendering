@@ -105,7 +105,10 @@ struct Uniforms_uint {
 @group(0) @binding(1) var<uniform> uniforms_uint : Uniforms_uint;
 @group(0) @binding(2) var my_texture: texture_2d<f32>;
 @group(0) @binding(3) var<storage> jitter: array<vec2f>;
-
+@group(0) @binding(4)
+var<storage> vPositions : array<vec3f>;
+@group(0) @binding(5)
+var<storage> meshFaces : array<vec3u>;
 struct VSOut {
     @builtin(position) position : vec4f,
     @location(0) coords : vec2f,
@@ -229,21 +232,22 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     
 }
 
-fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, v: array<vec3f, 3>) -> bool
+fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face: vec3u) -> bool
+    
 {
-    let e0 = v[1] - v[0];
-    let e1 = v[2] - v[0];
+    let e0 = vPositions[face[1]] - vPositions[face[0]];
+    let e1 = vPositions[face[2]] - vPositions[face[0]];
 
     var normal = cross(e0, e1);
-    let beta = dot(cross((v[0] - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
+    let beta = dot(cross((vPositions[face[0]] - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
 
-    let gamma = - dot( cross(v[0] - ray.origin, ray.direction), e0) / dot(ray.direction,normal);
+    let gamma = - dot( cross(vPositions[face[0]] - ray.origin, ray.direction), e0) / dot(ray.direction,normal);
 
     if (beta < 0.0) || (gamma < 0.0) || (beta+gamma>1.0)
     {
         return false;
     }
-    let t = dot((v[0] - ray.origin), normal) / dot(ray.direction,normal);
+    let t = dot((vPositions[face[0]] - ray.origin), normal) / dot(ray.direction,normal);
     if  (t <= ray.tmin || t >= ray.tmax)
     {
         return false;
@@ -270,7 +274,15 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_rep
 // For each intersection found, update (*r).tmax and store additional info about the hit.
     intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
     intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
-    intersect_triangle(ray, hit, TRIANGLE_VERTICES);
+
+    for (var i: u32 = 0; i < arrayLength(&meshFaces); i = i + 1) {
+        var temp_hit = *hit;
+        if (intersect_triangle(ray, &temp_hit, meshFaces[i])) {
+            if (!(*hit).has_hit || temp_hit.dist < (*hit).dist) {
+                *hit = temp_hit;
+            }
+        }
+    }
 
     return (*hit).has_hit;
 }
