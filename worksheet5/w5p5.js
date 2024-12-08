@@ -20,7 +20,7 @@ var uniforms_f, uniforms_ui;
 var uniformBuffer_f, uniformBuffer_ui;
 
 var sphere_shader = 5;
-var plane_triangle_shader = 0;
+var plane_triangle_shader = 1;
 var use_repeat = 1;
 var use_linear = 1;
 var use_texture = 1;
@@ -222,7 +222,7 @@ async function main() {
     const drawingInfo = await readOBJFile(obj_filename, 1, true);
     console.log(drawingInfo.materials)
     console.log(drawingInfo.mat_indices)
-    console.log(drawingInfo.light_indices)
+    console.log("light indices = ",drawingInfo.light_indices)
 
     console.log("drawingInfo = ", drawingInfo);
     
@@ -230,7 +230,8 @@ async function main() {
     var indexBuffer = set_up_index_buffer(device, drawingInfo.indices);
     var normalsBuffer = set_up_normal_buffer(device, drawingInfo.normals);
     var materialsBuffer = set_up_materials_buffer(device, drawingInfo.materials);
-     var mat_indicesBuffer = set_up_material_indices_buffer(device, drawingInfo.mat_indices);
+    var mat_indicesBuffer = set_up_material_indices_buffer(device, drawingInfo.mat_indices);
+     var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
     
 
     const texture = await load_texture(device, "../data/grass.jpg");
@@ -246,6 +247,7 @@ async function main() {
     { binding: 6, resource: { buffer: normalsBuffer } },
     { binding: 7, resource: { buffer: materialsBuffer } },
     { binding: 8, resource: { buffer: mat_indicesBuffer } },
+     { binding: 9, resource: { buffer: light_indicesBuffer } },
     ],
     });
 
@@ -366,6 +368,17 @@ function set_up_material_indices_buffer(device, mat_indices)
         });
     device.queue.writeBuffer(mat_indicesBuffer, 0, mat_indices);
     return mat_indicesBuffer;
+}
+
+function set_up_lifght_indices_buffer(device, light_indices)
+{
+    console.log("light_indices = ", light_indices);
+    const light_indicesBuffer = device.createBuffer({
+        size: light_indices.byteLength,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+        });
+    device.queue.writeBuffer(light_indicesBuffer, 0, light_indices);
+    return light_indicesBuffer;
 }
 
 

@@ -1,0 +1,1 @@
+Multiple shadows per object can be seen as the i've decided to treat each of the light triangles as an individual point source light :). Naturally, this could be avoided if they were replaced by a single point light source.
