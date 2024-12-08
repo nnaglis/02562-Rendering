@@ -1,1 +1,1 @@
-Multiple shadows per object can be seen as the i've decided to treat each of the light triangles as an individual point source light :). Naturally, this could be avoided if they were replaced by a single point light source.
+Multiple shadows per object can be seen as the i've decided to treat each of the light triangles as an individual point source light that i position at the centroid of a triangle (adding all three triangle positions and dividing them by 3) :). Naturally, this could be avoided if they were replaced by a single point light source.

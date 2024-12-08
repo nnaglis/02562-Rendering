@@ -1,0 +1,3 @@
+"Investigate the implementation of this spatial data structure in BspTree.js. Explain how it works and use the BSP tree instead of the simple looping over all triangles from Worksheet 5."
+
+Intersect_min_max checks if the ray intersects the bounding box of the BSP tree. If there is an intersection, it calls intersect_trimesh, which traverses through the BSP tree's branches. The function selects the closest branch based on the ray's intersection with the splitting planes, progressively narrowing down the search area until it reaches a leaf node, where it checks for intersections with the triangles stored in that node.

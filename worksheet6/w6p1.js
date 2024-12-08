@@ -4,10 +4,10 @@ const padding = 0.0;
 
 
 class Camera {
-    eyePos = vec3(277.0, 275.0, -570.0);
-    lookat = vec3(277.0, 275.0, 0.0);
+    eyePos = vec3(-0.02, 0.11, 0.6);
+    lookat = vec3(-0.02, 0.11, 0.0);
     up = vec3(0.0, 1.0, 0.0);
-    cam_const = 1.0;
+    cam_const = 3.5;
 };
 
 
@@ -72,11 +72,11 @@ async function main() {
     var filterMenu = document.getElementById("filtermode");     
 
     addEventListener("wheel", (event) => {
-        //camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
-        //uniforms_f[3] = camera.cam_const;
-        //device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
+        camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
+        uniforms_f[3] = camera.cam_const;
+        device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
         console.log("camera.cam_const = " + camera.cam_const);
-        //animate();
+        animate();
         });
 
     addressMenu.addEventListener("click", () => {
@@ -218,8 +218,11 @@ async function main() {
 
         // var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
 
-    const obj_filename = '../data/objects/CornellBoxWithBlocks.obj';
-    const drawingInfo = await readOBJFile(obj_filename, 1, true);
+    const obj_filename = '../data/objects/bunny.obj';
+    var drawingInfo = await readOBJFile(obj_filename, 1, true);
+    var buffers = new Object();
+    build_bsp_tree(drawingInfo, device, buffers);
+    console.log("buffers: ",buffers);
     console.log(drawingInfo.materials)
     console.log(drawingInfo.mat_indices)
     console.log("light indices = ",drawingInfo.light_indices)
@@ -231,7 +234,8 @@ async function main() {
     var normalsBuffer = set_up_normal_buffer(device, drawingInfo.normals);
     var materialsBuffer = set_up_materials_buffer(device, drawingInfo.materials);
     var mat_indicesBuffer = set_up_material_indices_buffer(device, drawingInfo.mat_indices);
-     var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
+    drawingInfo.light_indices = new Uint32Array([0]);
+    var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
     
 
     const texture = await load_texture(device, "../data/grass.jpg");
@@ -240,14 +244,18 @@ async function main() {
     entries: [
     { binding: 0, resource: { buffer: uniformBuffer_f } },
     { binding: 1, resource: { buffer: uniformBuffer_ui } },
-    { binding: 2, resource: texture.createView() },
+    //{ binding: 2, resource: texture.createView() },
     { binding: 3, resource: { buffer: jitterBuffer } },
     { binding: 4, resource: { buffer: positionsBuffer } },
     { binding: 5, resource: { buffer: indexBuffer } },
     { binding: 6, resource: { buffer: normalsBuffer } },
     { binding: 7, resource: { buffer: materialsBuffer } },
-    { binding: 8, resource: { buffer: mat_indicesBuffer } },
-     { binding: 9, resource: { buffer: light_indicesBuffer } },
+    //{ binding: 8, resource: { buffer: mat_indicesBuffer } },
+    //{ binding: 9, resource: { buffer: light_indicesBuffer } },
+    { binding: 10, resource: { buffer: buffers.aabb } },
+    { binding: 11, resource: { buffer: buffers.treeIds}},
+    { binding: 12, resource: { buffer: buffers.bspTree}},
+    { binding: 13, resource: { buffer: buffers.bspPlanes}}
     ],
     });
 
