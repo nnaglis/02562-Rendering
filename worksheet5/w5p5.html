@@ -293,7 +293,8 @@ fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>) -> Light
     let cosThetaE = max(-dot(w_i, lightNormal), 0.0);
 
     let dist = length(centroid - (*hit).position);
-    let L_i = area * cosThetaE * LIGHT_INTENSITY / (dist * dist);
+    let L_e = materials[material_indices[triangeIndex]].emission;
+    let L_i = area * cosThetaE * L_e / (dist * dist);
     return Light(L_i, w_i, dist);
 }
 fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
@@ -313,7 +314,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     //let light = sample_point_light((*hit).position);
     //let light = sample_directional_light();
 
-    var L_o = (*hit).ambient + 0.1 * (*hit).color;
+    var L_o = (*hit).ambient;
     var L_rd = vec3f(0.0);
     var lightContributions = 0;
     for (var i: u32 = 0; i < arrayLength(&lightIndices); i = i + 1) 
@@ -330,7 +331,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
             }
         }
         let n = normalize((*hit).normal);
-        L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color;
+        L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color * f32(lightContributions);
         
         }
     if (lightContributions == 0)
