@@ -109,7 +109,7 @@ async function main() {
             // add a delay
             setTimeout(() => {
                 requestAnimationFrame(animate);
-            }, 1000);
+            }, 1);
         }
     }
 

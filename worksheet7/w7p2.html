@@ -12,7 +12,7 @@
 
 <body>
 <div>
-    <label for="progressiveSampling">Progressive sampling (updates every second):</label>
+    <label for="progressiveSampling">Progressive sampling:</label>
         <input type="checkbox" id="progressiveSampling" name="progressiveSampling" value="0">
     <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
@@ -342,28 +342,44 @@ fn sample_directional_light() -> Light
     return Light(LIGHT_INTENSITY, normalize(-DIRECTIONAL_LIGHT_DIRECTION), T_MAX);
 }
 
-fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>) -> Light
+fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> Light
 {
-
+    // based on t, selectd a 
     let face = meshFaces[triangeIndex];
-    let centroid = (vertexAttributes[face[0]].vPosition + vertexAttributes[face[1]].vPosition + vertexAttributes[face[2]].vPosition) / 3.0;
-    let w_i = normalize(centroid - (*hit).position);
+
+    let rnd1 = rnd(t);
+    let rnd2 = rnd(t);
+
+    let a = 1.0 - sqrt(rnd1);
+    let b = sqrt(rnd1) * (1.0 - rnd2);
+    let c = sqrt(rnd1) * rnd2;
+
+    let samplePoint = a * vertexAttributes[face[0]].vPosition + b * vertexAttributes[face[1]].vPosition + c * vertexAttributes[face[2]].vPosition;
+
+
+    let w_i = normalize(samplePoint - (*hit).position);
     //calculate the interpolated normal of the light triangle
 
     let edge1 = vertexAttributes[face[1]].vPosition - vertexAttributes[face[0]].vPosition;
     let edge2 = vertexAttributes[face[2]].vPosition - vertexAttributes[face[0]].vPosition;
     let area = 0.5 * length(cross(edge1, edge2));
-    let lightNormal = normalize(cross(edge1, edge2));
+    let lightNormal = normalize(
+    a * vertexAttributes[face[0]].vNormal +
+    b * vertexAttributes[face[1]].vNormal +
+    c * vertexAttributes[face[2]].vNormal
+);
     let cosThetaE = max(-dot(w_i, lightNormal), 0.0);
 
-    let dist = length(centroid - (*hit).position);
-    let L_i = area * cosThetaE * LIGHT_INTENSITY / (dist * dist);
+    let L_e = materials[face[3]].emission;
+
+    let dist = length(samplePoint - (*hit).position);
+    let L_i = area  * cosThetaE * L_e / (dist * dist);
     return Light(L_i, w_i, dist);
 }
-fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
+fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
     switch (*hit).shader {
-        case 1 { return lambertian(r, hit); }
+        case 1 { return lambertian(r, hit, t); }
         case 2 { return phong(r, hit); }
         case 3 { return mirror(r, hit); }
         case 4 { return refraction(r, hit); }
@@ -372,46 +388,40 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     }
 }
 
-fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
+fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
+{
     // Initialize ambient contribution
-    var L_o = (*hit).ambient + 0.1 * (*hit).color;
+    var L_o = (*hit).ambient;
     var L_rd = vec3f(0.0);
 
     // Initialize aggregated light properties
     var avg_light_dir = vec3f(0.0);
     var avg_light_intensity = vec3f(0.0);
     var min_distance = T_MAX;
-    var lightContributions = 0;
+
 
     // Aggregate light sources
-    for (var i: u32 = 0; i < arrayLength(&lightIndices); i = i + 1) {
-        let light = sample_area_light(lightIndices[i], hit);
 
-        // Accumulate light parameters
-        avg_light_dir += light.w_i; // Add light direction
-        avg_light_intensity += light.L_i; // Add light intensity
-        min_distance = min(min_distance, light.dist); // Find minimum distance
-        lightContributions += 1;
-    }
-
-    // If there are no lights, return ambient contribution
-    if (lightContributions == 0) {
+    if (arrayLength(&lightIndices) == 0) {
         return L_o;
     }
 
-    // Average the light properties
-    avg_light_dir = normalize(avg_light_dir / f32(lightContributions)); // Normalize after averaging
-    avg_light_intensity = avg_light_intensity / f32(lightContributions);
+    // based on random u32 (variable t) select a random light triangle
+    let index = u32(rnd(t) * f32(arrayLength(&lightIndices)));
+    
+    let light = sample_area_light(lightIndices[index], hit, t);
+
+    let pdf = f32(arrayLength(&lightIndices));
 
     // Treat the averaged light as a single light source
     // light is for certain not averaged in the most optimal way, requiring a large offset to avoid self-shadowing, but nonetheless logic wise is correctly set up
-    var shadow_ray = Ray((*hit).position, avg_light_dir, T_MIN, min_distance - (T_MIN * 20.0));
+    var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - 200);
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0));
     
     // Check for shadow occlusion
     if (!intersect_scene(&shadow_ray, &shadow_hit) || shadow_hit.dist >= (*hit).dist) {
         let n = normalize((*hit).normal);
-        L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color;
+        L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color * pdf;
     }
 
     return L_rd + L_o;
@@ -558,7 +568,7 @@ fn mcg31(prev: ptr<function, u32>) -> u32
             *prev = (LCG_A * (*prev)) & 0x7FFFFFFE;
             return *prev;
         }
-        fn rnd(prev: ptr<function, u32>) -> f32
+fn rnd(prev: ptr<function, u32>) -> f32
         {
             return f32(mcg31(prev)) / f32(0x80000000);
         }
@@ -593,15 +603,16 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     let progressiveSampling = uniforms_uint.progressiveSampling != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
-    let jittered_coords = coords + jitter;
-    let base_uv = vec2f(jittered_coords.x * uniforms.aspect * 0.5f, jittered_coords.y * 0.5f);
-    
+    var base_uv = vec2f(coords.x * uniforms.aspect * 0.5f, coords.y * 0.5f);
+    if (progressiveSampling) {
+        base_uv += jitter;
+    }
     var r = get_camera_ray(base_uv);
     var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     for(var i = 0; i < max_depth; i++) {
         if(intersect_scene(&r, &hit))
         { 
-            result += shade(&r, &hit); 
+            result += shade(&r, &hit, &t); 
         }
         else 
         { 

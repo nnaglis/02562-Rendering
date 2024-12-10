@@ -357,7 +357,8 @@ fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>) -> Light
     let cosThetaE = max(-dot(w_i, lightNormal), 0.0);
 
     let dist = length(centroid - (*hit).position);
-    let L_i = area * cosThetaE * LIGHT_INTENSITY / (dist * dist);
+    let L_e = materials[face[3]].emission;
+    let L_i = area * cosThetaE * L_e / (dist * dist);
     return Light(L_i, w_i, dist);
 }
 fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
@@ -374,7 +375,7 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 
 fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
     // Initialize ambient contribution
-    var L_o = (*hit).ambient + 0.1 * (*hit).color;
+    var L_o = (*hit).ambient;
     var L_rd = vec3f(0.0);
 
     // Initialize aggregated light properties
@@ -411,7 +412,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
     // Check for shadow occlusion
     if (!intersect_scene(&shadow_ray, &shadow_hit) || shadow_hit.dist >= (*hit).dist) {
         let n = normalize((*hit).normal);
-        L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color;
+        L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color * f32(lightContributions);
     }
 
     return L_rd + L_o;
@@ -593,9 +594,10 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     let progressiveSampling = uniforms_uint.progressiveSampling != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
-    let jittered_coords = coords + jitter;
-    let base_uv = vec2f(jittered_coords.x * uniforms.aspect * 0.5f, jittered_coords.y * 0.5f);
-    
+    var base_uv = vec2f(coords.x * uniforms.aspect * 0.5f, coords.y * 0.5f);
+    if (progressiveSampling) {
+        base_uv += jitter;
+    }
     var r = get_camera_ray(base_uv);
     var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
     for(var i = 0; i < max_depth; i++) {
