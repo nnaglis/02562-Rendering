@@ -218,7 +218,7 @@ async function main() {
 
         // var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
 
-    const obj_filename = '../data/objects/CornellBoxWithBlocks.obj';
+    const obj_filename = '../data/objects/CornellBox.obj';
     var drawingInfo = await readOBJFile(obj_filename, 1, true);
     console.log("drawingInfo = ", drawingInfo);
     var buffers = new Object();

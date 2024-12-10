@@ -46,9 +46,7 @@ const PI = 3.14;
 
 const PLANE_POSITION: vec3f = vec3f(0.0, 0.0, 0.0);
 const PLANE_COLOR : vec3f = vec3f(0.1, 0.7, 0.0);
-const SPHERE_CENTER: vec3f = vec3f(0.0, 0.5, 0.0);
-const SPHERE_RADIUS: f32 = 0.3;
-const SPHERE_COLOR: vec3f = vec3f(0.0, 0.0, 0.0);
+const SPHERE_COLOR: vec3f = vec3f(0.2, 0.2, 0.2);
 const TRIANGLE_COLOR: vec3f = vec3f(0.9, 0.9, 0.9);
 const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
     vec3f(-0.2, 0.1, 0.9),  // First vector
@@ -177,7 +175,7 @@ fn get_camera_ray(ipcoords: vec2f) -> Ray
 }
 
 
-fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center: vec3f, radius: f32) -> bool
+fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center: vec3f, radius: f32, shader: u32) -> bool
 {
     let b_2 = dot(ray.origin - center, ray.direction);
     let c = dot((ray.origin - center), (ray.origin - center)) - (radius*radius);
@@ -210,7 +208,9 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = normalize((*hit).position - center);
     (*hit).color = SPHERE_COLOR;
-    (*hit).shader = u32(uniforms_uint.sphere_shader);
+    (*hit).shader = shader;
+    (*hit).ambient = AMBIENT_LIGHT;
+    (*hit).diffuse = DIFFUSE_REFLECTANCE;
     (*hit).specular = SPECULAR_SPHERE;
     (*hit).shininess = SHININESS_SPHERE;
     return true;
@@ -342,13 +342,15 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_rep
 // Call an intersection function for each object.
 // For each intersection found, update (*r).tmax and store additional info about the hit.
     //intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
-    //intersect_sphere(ray, hit, SPHERE_CENTER, SPHERE_RADIUS);
+    //
     
     //intersect_min_max(ray);
     //intersect_trimesh(ray, hit);
-
     if (intersect_min_max(ray)) {
+    intersect_sphere(ray, hit, vec3f(420.0, 90.0, 370.0), 90.0, 3);
+    intersect_sphere(ray, hit, vec3f(130.0, 90.0, 250.0), 90.0, 4);
         intersect_trimesh(ray, hit);
+        
         
     }
 
@@ -516,7 +518,7 @@ fn refraction(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     *r = Ray((*hit).position, normalize(refracted_direction), T_MIN, T_MAX);
     
     (*hit).has_hit = false;
-    return (*hit).color;
+    return vec3f(0.0, 0.0, 0.0);
 }
 
 fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
