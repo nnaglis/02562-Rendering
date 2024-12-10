@@ -59,7 +59,7 @@ const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
 const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
 const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(-1.0);
 //const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
-const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
+const LIGHT_INTENSITY: vec3f = vec3f(50, 50, 50);
 
 const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
 const AMBIENT_LIGHT: vec3f = vec3f(0.1);
@@ -75,7 +75,6 @@ const SHININESS_SPHERE: f32 = 6.0;
 
 const TEXTURE_SCALE: f32 = 0.2;
 
-const MATERIAL_INDEX: u32 = 0;
 
 
 struct Uniforms {
@@ -110,14 +109,12 @@ struct Material {
 @group(0) @binding(1) var<uniform> uniforms_uint : Uniforms_uint;
 //@group(0) @binding(2) var my_texture: texture_2d<f32>;
 @group(0) @binding(3) var<storage> jitter: array<vec2f>;
-@group(0) @binding(4)
-var<storage> vPositions : array<vec3f>;
-@group(0) @binding(5)
-var<storage> meshFaces : array<vec3u>;
-@group(0) @binding(6) var<storage> vNormals : array<vec3f>;
+@group(0) @binding(4) var<storage> vertexAttributes : array<Vertex_attr>;
+@group(0) @binding(5) var<storage> meshFaces : array<vec4u>;
+//@group(0) @binding(6) var<storage> vNormals : array<vec3f>;
 @group(0) @binding(7) var<storage> materials : array<Material>;
 //@group(0) @binding(8) var<storage> material_indices : array<u32>;
-//@group(0) @binding(9) var<storage> lightIndices : array<u32>;
+@group(0) @binding(9) var<storage> lightIndices : array<u32>;
 @group(0) @binding(10) var<uniform> aabb: Aabb;
 @group(0) @binding(11) var<storage> treeIds: array<u32>;
 @group(0) @binding(12) var<storage> bspTree: array<vec4u>;
@@ -127,6 +124,11 @@ const MAX_LEVEL = 20u;
 const BSP_LEAF = 3u;
 var<private> branch_node: array<vec2u, MAX_LEVEL>;
 var<private> branch_ray: array<vec2f, MAX_LEVEL>;
+
+struct Vertex_attr {
+    vPosition: vec3<f32>,
+    vNormal: vec3<f32>,
+    };
 
 struct Aabb {
     min: vec3f, max: vec3f, 
@@ -218,20 +220,20 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
 fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, faceIndex: u32,) -> bool 
 {
     let face = meshFaces[faceIndex];
-    let e0 = vPositions[face[1]] - vPositions[face[0]];
-    let e1 = vPositions[face[2]] - vPositions[face[0]];
+    let e0 = vertexAttributes[face[1]].vPosition - vertexAttributes[face[0]].vPosition;
+    let e1 = vertexAttributes[face[2]].vPosition - vertexAttributes[face[0]].vPosition;
 
     var normal = cross(e0, e1);
-    let beta = dot(cross((vPositions[face[0]] - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
+    let beta = dot(cross((vertexAttributes[face[0]].vPosition - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
 
-    let gamma = - dot( cross(vPositions[face[0]] - ray.origin, ray.direction), e0) / dot(ray.direction,normal);
+    let gamma = - dot( cross(vertexAttributes[face[0]].vPosition - ray.origin, ray.direction), e0) / dot(ray.direction,normal);
 
     if (beta < 0.0) || (gamma < 0.0) || (beta+gamma>1.0)
     {
         return false;
     }
-    let weighted_normal = normalize( vNormals[face[0]] * (1.0 - beta - gamma) + vNormals[face[1]] * beta + vNormals[face[2]] * gamma);   
-    let t = dot((vPositions[face[0]] - ray.origin), normal) / dot(ray.direction,normal);
+    let weighted_normal = normalize( vertexAttributes[face[0]].vNormal * (1.0 - beta - gamma) + vertexAttributes[face[1]].vNormal * beta + vertexAttributes[face[2]].vNormal * gamma);   
+    let t = dot((vertexAttributes[face[0]].vPosition - ray.origin), normal) / dot(ray.direction,normal);
     if  (t <= ray.tmin || t >= ray.tmax)
     {
         return false;
@@ -244,9 +246,9 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     (*hit).dist = t;
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = weighted_normal;
-    (*hit).color = materials[MATERIAL_INDEX].color; 
+    (*hit).color = materials[face[3]].color; 
     (*hit).shader = uniforms_uint.plane_triangle_shader;
-    (*hit).ambient = materials[MATERIAL_INDEX].emission;
+    (*hit).ambient = materials[face[3]].emission;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     (*hit).specular = SPECULAR_SPHERE;
     (*hit).shininess = SHININESS_SPHERE;
@@ -368,14 +370,14 @@ fn sample_directional_light() -> Light
 
 fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>) -> Light
 {
-    //calculate the centtroid of the triangle to position the point light source
+
     let face = meshFaces[triangeIndex];
-    let centroid = (vPositions[face[0]] + vPositions[face[1]] + vPositions[face[2]]) / 3.0;
+    let centroid = (vertexAttributes[face[0]].vPosition + vertexAttributes[face[1]].vPosition + vertexAttributes[face[2]].vPosition) / 3.0;
     let w_i = normalize(centroid - (*hit).position);
     //calculate the interpolated normal of the light triangle
 
-    let edge1 = vPositions[face[1]] - vPositions[face[0]];
-    let edge2 = vPositions[face[2]] - vPositions[face[0]];
+    let edge1 = vertexAttributes[face[1]].vPosition - vertexAttributes[face[0]].vPosition;
+    let edge2 = vertexAttributes[face[2]].vPosition - vertexAttributes[face[0]].vPosition;
     let area = 0.5 * length(cross(edge1, edge2));
     let lightNormal = normalize(cross(edge1, edge2));
     let cosThetaE = max(-dot(w_i, lightNormal), 0.0);
@@ -396,24 +398,51 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     }
 }
 
-fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
-{
-    let light = sample_directional_light();
-    var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
-    var L_o = (*hit).ambient + 0.15*(*hit).color;
-    if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
-    {
-        if ((shadow_hit.dist) < (*hit).dist)
-        {
-            return L_o;
-        }
+fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
+    // Initialize ambient contribution
+    var L_o = (*hit).ambient + 0.1 * (*hit).color;
+    var L_rd = vec3f(0.0);
+
+    // Initialize aggregated light properties
+    var avg_light_dir = vec3f(0.0);
+    var avg_light_intensity = vec3f(0.0);
+    var min_distance = T_MAX;
+    var lightContributions = 0;
+
+    // Aggregate light sources
+    for (var i: u32 = 0; i < arrayLength(&lightIndices); i = i + 1) {
+        let light = sample_area_light(lightIndices[i], hit);
+
+        // Accumulate light parameters
+        avg_light_dir += light.w_i; // Add light direction
+        avg_light_intensity += light.L_i; // Add light intensity
+        min_distance = min(min_distance, light.dist); // Find minimum distance
+        lightContributions += 1;
     }
-    let n = normalize((*hit).normal);
-    let L_rd = (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color;
-    L_o += L_rd;
-    return L_o;
+
+    // If there are no lights, return ambient contribution
+    if (lightContributions == 0) {
+        return L_o;
+    }
+
+    // Average the light properties
+    avg_light_dir = normalize(avg_light_dir / f32(lightContributions)); // Normalize after averaging
+    avg_light_intensity = avg_light_intensity / f32(lightContributions);
+
+    // Treat the averaged light as a single light source
+    // light is for certain not averaged in the most optimal way, requiring a large offset to avoid self-shadowing, but nonetheless logic wise is correctly set up
+    var shadow_ray = Ray((*hit).position, avg_light_dir, T_MIN, min_distance - (T_MIN * 20.0));
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0));
+    
+    // Check for shadow occlusion
+    if (!intersect_scene(&shadow_ray, &shadow_hit, false, false, false) || shadow_hit.dist >= (*hit).dist) {
+        let n = normalize((*hit).normal);
+        L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color;
+    }
+
+    return L_rd + L_o;
 }
+
 
 //not used as of P1
 fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
