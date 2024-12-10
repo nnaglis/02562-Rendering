@@ -18,14 +18,10 @@ const camera = new Camera();
 // Create a variable to store the uniform buffer
 var uniforms_f, uniforms_ui;
 var uniformBuffer_f, uniformBuffer_ui;
+var progressiveSampling = 0;
+var frameNumber = 0;
+var textures;
 
-var sphere_shader = 5;
-var plane_triangle_shader = 1;
-var use_repeat = 1;
-var use_linear = 1;
-var use_texture = 1;
-var pixel_subdivision = 1;
-var jitter = new Float32Array(200)
 
 
 async function load_texture(device, filename)
@@ -76,25 +72,63 @@ async function main() {
         // animate();
         });
 
+    addEventListener("wheel", (event) => {
+        camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
+        uniforms_f[3] = camera.cam_const;
+        device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
+        console.log("camera.cam_const = " + camera.cam_const);
+        animate();
+        });
+
+    const progressiveSamplingCheckbox = document.getElementById('progressiveSampling');
+    
+    progressiveSamplingCheckbox.addEventListener('change', function() {
+            if (progressiveSamplingCheckbox.checked)
+            {
+                progressiveSampling = 1;
+            }
+            else 
+            {
+                progressiveSampling = 0;
+            }
+            uniforms_ui[0] = progressiveSampling;
+            device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+            requestAnimationFrame(animate);
+            console.log("progressiveSampling = " + progressiveSampling);
+        });
+
     function animate()
         {
-        render(device, context, pipeline, bindGroup);
+        console.log("animate");
+        render(device, context, pipeline, textures, bindGroup);
+        if (progressiveSampling == 1)
+        {
+            frameNumber += 1;
+            uniforms_ui[3] = frameNumber;
+            device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+            // add a delay
+            setTimeout(() => {
+                requestAnimationFrame(animate);
+            }, 1000);
         }
+    }
 
     
 
     const pipeline = device.createRenderPipeline({
         layout: "auto",
         vertex: {
-            module: wgsl,
-            entryPoint: "main_vs",
+        module: wgsl,
+        entryPoint: "main_vs",
         },
         fragment: {
-            module: wgsl,
-            entryPoint: "main_fs",
-            targets: [{ format: canvasFormat }]
-        }, primitive: {
-            topology: "triangle-strip",
+        module: wgsl,
+        entryPoint: "main_fs",
+        targets: [ { format: canvasFormat },
+        { format: "rgba32float" } ]
+        },
+        primitive: {
+        topology: "triangle-strip",
         },
     });
 
@@ -103,20 +137,6 @@ async function main() {
         size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
 
-    uniformBuffer_ui = device.createBuffer({
-        label: 'uniforms_ui',
-        size: 24,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
-
-        const jitterBuffer = device.createBuffer({
-        label: 'jitter',
-        size: jitter.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
-        });
-
-    compute_jitters(jitter, 1/canvas.height, pixel_subdivision);
-
-    device.queue.writeBuffer(jitterBuffer, 0, jitter);
 
     uniforms_f = new Float32Array([
         camera.eyePos[0], camera.eyePos[1], camera.eyePos[2], camera.cam_const,
@@ -126,8 +146,12 @@ async function main() {
     device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
 
     uniforms_ui = new Uint32Array([
-        sphere_shader, plane_triangle_shader, use_repeat, use_linear, use_texture, pixel_subdivision
+        progressiveSampling, canvas.width, canvas.height, frameNumber
     ]);
+    uniformBuffer_ui = device.createBuffer({
+        label: 'uniforms_ui',
+        size: uniforms_ui.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, });
     device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
 
     //dropdown1.dispatchEvent(new Event('change'));
@@ -165,15 +189,28 @@ async function main() {
     // drawingInfo.light_indices = new Uint32Array([0]);
     var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
     
+    textures = new Object();
+    textures.width = canvas.width;
+    textures.height = canvas.height;
+    textures.renderSrc = device.createTexture({
+    size: [canvas.width, canvas.height],
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    format: 'rgba32float',
+    });
+    textures.renderDst = device.createTexture({
+    size: [canvas.width, canvas.height],
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    format: 'rgba32float',
+    });
+    
 
-    const texture = await load_texture(device, "../data/grass.jpg");
     const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
     { binding: 0, resource: { buffer: uniformBuffer_f } },
     { binding: 1, resource: { buffer: uniformBuffer_ui } },
-    //{ binding: 2, resource: texture.createView() },
-    { binding: 3, resource: { buffer: jitterBuffer } },
+    { binding: 2, resource: textures.renderDst.createView() },
+    //{ binding: 3, resource: { buffer: jitterBuffer } },
     { binding: 4, resource: { buffer: buffers.attribs } },
     { binding: 5, resource: { buffer: indexBuffer } },
     //{ binding: 6, resource: { buffer: normalsBuffer } },
@@ -193,41 +230,22 @@ async function main() {
 
 
 
-function render(device, context, pipeline, bindGroup)
-    {
-        // Create a render pass in a command buffer and submit it 
-        let encoder = device.createCommandEncoder();
-        let pass = encoder.beginRenderPass({
-            colorAttachments: [{
-                view: context.getCurrentTexture().createView(), loadOp: "clear",
-                storeOp: "store",
-            }]
-        });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(4);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-    }
-
-function compute_jitters(jitter, pixelsize, subdivs)
+function render(device, context, pipeline, textures, bindGroup)
 {
-    const step = pixelsize/subdivs;
-    if(subdivs < 2)
-    {
-        jitter[0] = 0.0;
-        jitter[1] = 0.0;
-    }
-    else 
-    {
-    for(var i = 0; i < subdivs; ++i)
-        for(var j = 0; j < subdivs; ++j) 
-        {
-            const idx = (i*subdivs + j)*2;
-            jitter[idx] = (Math.random() + j)*step - pixelsize*0.5;
-            jitter[idx + 1] = (Math.random() + i)*step - pixelsize*0.5;
-        }
-    }
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+    colorAttachments: [
+    { view: context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store" },
+    { view: textures.renderSrc.createView(), loadOp: "load", storeOp: "store" }]
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(4);
+    pass.end();
+    encoder.copyTextureToTexture({ texture: textures.renderSrc }, { texture: textures.renderDst },
+    [textures.width, textures.height]);
+    // Finish the command buffer and immediately submit it.
+    device.queue.submit([encoder.finish()]);
 }
 
 function set_up_position_buffer(device, vertices)

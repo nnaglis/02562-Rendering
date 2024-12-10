@@ -12,6 +12,8 @@
 
 <body>
 <div>
+    <label for="progressiveSampling">Progressive sampling (updates every second):</label>
+        <input type="checkbox" id="progressiveSampling" name="progressiveSampling" value="0">
     <br>
 <canvas id = "webgpu-canvas" width = "512" height = "512">
 <script id = "wgsl" type = "x-shader">
@@ -59,12 +61,10 @@ struct Uniforms {
 };
 
 struct Uniforms_uint {
-    sphere_shader: u32,
-    plane_triangle_shader: u32,
-    use_repeat: u32,
-    use_linear: u32,
-    use_texture: u32,
-    pixel_subdivision: u32,
+    progressiveSampling: u32,
+    canvasWidth: u32,
+    canvasHeight: u32,
+    frameNumber: u32,
 };
 
 struct Material {
@@ -79,8 +79,8 @@ struct Material {
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<uniform> uniforms_uint : Uniforms_uint;
-//@group(0) @binding(2) var my_texture: texture_2d<f32>;
-@group(0) @binding(3) var<storage> jitter: array<vec2f>;
+@group(0) @binding(2) var renderTexture: texture_2d<f32>;
+//@group(0) @binding(3) var<storage> jitter: array<vec2f>;
 @group(0) @binding(4) var<storage> vertexAttributes : array<Vertex_attr>;
 @group(0) @binding(5) var<storage> meshFaces : array<vec4u>;
 //@group(0) @binding(6) var<storage> vNormals : array<vec3f>;
@@ -221,7 +221,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     (*hit).position = ray.origin + t * ray.direction;
     (*hit).normal = weighted_normal;
     (*hit).color = materials[face[3]].color; 
-    (*hit).shader = uniforms_uint.plane_triangle_shader;
+    (*hit).shader = 1;
     (*hit).ambient = materials[face[3]].emission;
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     (*hit).specular = SPECULAR_SPHERE;
@@ -309,7 +309,7 @@ fn intersect_trimesh(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
         return false;
 }
 
-fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, use_repeat: bool, use_linear: bool, use_texture: bool) -> bool 
+fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool 
 {
 
 // Define scene data as constants.
@@ -409,7 +409,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0));
     
     // Check for shadow occlusion
-    if (!intersect_scene(&shadow_ray, &shadow_hit, false, false, false) || shadow_hit.dist >= (*hit).dist) {
+    if (!intersect_scene(&shadow_ray, &shadow_hit) || shadow_hit.dist >= (*hit).dist) {
         let n = normalize((*hit).normal);
         L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color;
     }
@@ -425,7 +425,7 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     let light = sample_directional_light();
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
-    if (intersect_scene(&shadow_ray, &shadow_hit, false, false, false))
+    if (intersect_scene(&shadow_ray, &shadow_hit))
     {
         if ((shadow_hit.dist) < (*hit).dist)
         {
@@ -539,6 +539,31 @@ fn texture(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool, linear: boo
     }
 }
 
+// PRNG xorshift seed generator by NVIDIA
+fn tea(val0: u32, val1: u32) -> u32
+{
+    const N = 16u; // User specified number of iterations
+    var v0 = val0; var v1 = val1; var s0 = 0u;
+    for(var n = 0u; n < N; n++) {
+    s0 += 0x9e3779b9;
+    v0 += ((v1<<4)+0xa341316c)^(v1+s0)^((v1>>5)+0xc8013ea4);
+    v1 += ((v0<<4)+0xad90777d)^(v0+s0)^((v0>>5)+0x7e95761e);
+    }
+    return v0;
+}
+
+fn mcg31(prev: ptr<function, u32>) -> u32
+        {
+            const LCG_A = 1977654935u;
+            *prev = (LCG_A * (*prev)) & 0x7FFFFFFE;
+            return *prev;
+        }
+        fn rnd(prev: ptr<function, u32>) -> f32
+        {
+            return f32(mcg31(prev)) / f32(0x80000000);
+        }
+
+
 
 
 @vertex
@@ -552,50 +577,52 @@ fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
 }
 
 
-
+struct FSOut {
+    @location(0) frame: vec4f,
+    @location(1) accum: vec4f,
+};
 
 @fragment
-fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
+fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> FSOut
 {
-    let use_repeat = uniforms_uint.use_repeat != 0;
-    let use_linear = uniforms_uint.use_linear != 0;
-    let use_texture = uniforms_uint.use_texture != 0;
+    let launch_idx = u32(fragcoord.y)*uniforms_uint.canvasWidth + u32(fragcoord.x);
+    var t = tea(launch_idx, uniforms_uint.frameNumber);
+    let jitter = vec2f(rnd(&t), rnd(&t))/f32(uniforms_uint.canvasHeight);
+
+    var result = vec3f(0.0);
+    let progressiveSampling = uniforms_uint.progressiveSampling != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
     const max_depth = 10;
-    let base_uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
-    // Add jitter to the pixel calculation
-    var pixel_subdivision = uniforms_uint.pixel_subdivision;
-    var result = vec3f(0.0);
-    for (var i: u32 = 0; i < pixel_subdivision; i++)
-    {
-        for (var j: u32 = 0; j < pixel_subdivision; j++)
-        {
-            let idx = (i*pixel_subdivision + j) * 2;
-            let uv = base_uv + jitter[idx];
-            var r = get_camera_ray(uv);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
-            for(var i = 0; i < max_depth; i++) {
-                if(intersect_scene(&r, &hit, use_repeat, use_linear, use_texture))
-                { 
-                    result += shade(&r, &hit); 
-                }
-                else 
-                { 
-                    result += bgcolor.rgb;
-                    break; 
-                }
-                if(hit.has_hit) 
-                { 
-                    break; 
-                }
-            }
+    let jittered_coords = coords + jitter;
+    let base_uv = vec2f(jittered_coords.x * uniforms.aspect * 0.5f, jittered_coords.y * 0.5f);
+    
+    var r = get_camera_ray(base_uv);
+    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
+    for(var i = 0; i < max_depth; i++) {
+        if(intersect_scene(&r, &hit))
+        { 
+            result += shade(&r, &hit); 
+        }
+        else 
+        { 
+            result += bgcolor.rgb;
+            break; 
+        }
+        if(hit.has_hit) 
+        { 
+            break; 
         }
     }
-    
-    result = result / (f32(pixel_subdivision) * f32(pixel_subdivision));
-    return vec4f(result, 1.0);
-    //return vec4f(0.5,0.5,0.5,1.0);
+
+    // Progressive update of image
+    let curr_sum = textureLoad(renderTexture, vec2u(fragcoord.xy), 0).rgb*f32(uniforms_uint.frameNumber);
+    let accum_color = (result + curr_sum)/f32(uniforms_uint.frameNumber + 1u);
+    var fsOut: FSOut;
+    fsOut.frame = vec4f(pow(accum_color, vec3f(1.0/1.0)), 1.0);
+    fsOut.accum = vec4f(accum_color, 1.0);
+    return fsOut;
 }
+
     </script>
     Please use a browser that supports HTML5 canvas.
     </canvas>
