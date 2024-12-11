@@ -438,7 +438,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f {
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0));
     
     // Check for shadow occlusion
-    if (!intersect_scene(&shadow_ray, &shadow_hit, false, false, false) || shadow_hit.dist >= (*hit).dist) {
+    if (!intersect_scene(&shadow_ray, &shadow_hit, false, false, false)) {
         let n = normalize((*hit).normal);
         L_rd += (*hit).diffuse / PI * avg_light_intensity * max(dot(n, avg_light_dir), 0.0) * (*hit).color * f32(lightContributions);
     }
