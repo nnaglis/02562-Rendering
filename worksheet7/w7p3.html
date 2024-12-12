@@ -419,13 +419,19 @@ fn rotate_to_normal(n: vec3f, v: vec3f) -> vec3f
 
 fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
+    let prob = ((*hit).diffuse.x + (*hit).diffuse.y + (*hit).diffuse.z) / 3.0;
     var L_e = vec3f(0.0);
+    if prob < rnd(t)
+    {
+        return L_e;
+    }
     if ((*hit).emit)
     {
         L_e += (*hit).ambient;
         (*hit).emit = false;
+        (*hit).throughput = vec3f(1.0,1.0,1.0);
     }
-        (*hit).throughput *= (*hit).color;
+        (*hit).throughput = (*hit).throughput * (*hit).color / prob;
     var L_rd = vec3f(0.0);
 
     let phi = 2.0 * PI * rnd(t);
@@ -455,7 +461,6 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
     let pdf = f32(arrayLength(&lightIndices));
 
     // Treat the averaged light as a single light source
-    // light is for certain not averaged in the most optimal way, requiring a large offset to avoid self-shadowing, but nonetheless logic wise is correctly set up
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - T_MIN);
     var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0));
     
@@ -465,7 +470,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
         L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color * pdf;
     }
 
-    return L_rd + L_e;
+    return (*hit).throughput * L_rd + L_e;
 }
 
 
@@ -653,7 +658,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     for(var i = 0; i < max_depth; i++) {
         if(intersect_scene(&r, &hit))
         { 
-            result += hit.throughput * shade(&r, &hit, &t); 
+            result += shade(&r, &hit, &t); 
         }
         else 
         { 
