@@ -35,7 +35,7 @@ const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(-1.0);
 //const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
 const LIGHT_INTENSITY: vec3f = vec3f(50, 50, 50);
 
-const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
+const DIFFUSE_REFLECTANCE: vec3f = vec3f(1.0);
 const AMBIENT_LIGHT: vec3f = vec3f(0.1);
 
 const T_MIN = 10e-2;
@@ -131,6 +131,8 @@ struct HitInfo {
     ambient: vec3f,
     diffuse: vec3f,
     texcoords: vec2f,
+    emit: bool,
+    throughput: vec3f,
 };
 
 struct Light {
@@ -198,6 +200,12 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     let e1 = vertexAttributes[face[2]].vPosition - vertexAttributes[face[0]].vPosition;
 
     var normal = cross(e0, e1);
+
+    let denom = dot(ray.direction, normal);
+    if (abs(denom) < T_MIN) {
+        return false; // Ray is parallel to the triangle
+    }
+    
     let beta = dot(cross((vertexAttributes[face[0]].vPosition - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
 
     let gamma = - dot( cross(vertexAttributes[face[0]].vPosition - ray.origin, ray.direction), e0) / dot(ray.direction,normal);
@@ -319,8 +327,8 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
     //
     
     if (intersect_min_max(ray)) {
-    //intersect_sphere(ray, hit, vec3f(420.0, 90.0, 370.0), 90.0, 3);
-    //intersect_sphere(ray, hit, vec3f(130.0, 90.0, 250.0), 90.0, 4);
+    intersect_sphere(ray, hit, vec3f(420.0, 90.0, 370.0), 90.0, 3);
+    intersect_sphere(ray, hit, vec3f(130.0, 90.0, 250.0), 90.0, 4);
         intersect_trimesh(ray, hit);
         
         
@@ -382,28 +390,68 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u3
         case 1 { return lambertian(r, hit, t); }
         case 2 { return phong(r, hit); }
         case 3 { return mirror(r, hit); }
-        case 4 { return refraction(r, hit); }
-        case 5 { return glossy(r, hit); }
+        //case 4 { return refraction(r, hit); }
+        case 4 { return transparent(r, hit, t); }
+        case 5 { return glossy(r, hit, t); }
         case default { return (*hit).color + (*hit).ambient; }
     }
 }
 
+
+// Given spherical coordinates, where theta is the polar angle and phi is the
+// azimuthal angle, this function returns the corresponding direction vector
+fn spherical_direction(sin_theta: f32, cos_theta: f32, phi: f32) -> vec3f
+{
+    return vec3f(sin_theta*cos(phi), sin_theta*sin(phi), cos_theta);
+}
+// Given a direction vector v sampled around the z-axis of a local coordinate system,
+// this function applies the same rotation to v as is needed to rotate the z-axis to
+// the actual direction n that v should have been sampled around
+// [Frisvad, Journal of Graphics Tools 16, 2012;
+// Duff et al., Journal of Computer Graphics Techniques 6, 2017].
+fn rotate_to_normal(n: vec3f, v: vec3f) -> vec3f
+{
+    let s = sign(n.z + 1.0e-16f);
+    let a = -1.0f/(1.0f + abs(n.z));
+    let b = n.x*n.y*a;
+    return vec3f(1.0f + n.x*n.x*a, b, -s*n.x)*v.x + vec3f(s*b, s*(1.0f + n.y*n.y*a), -n.y)*v.y + n*v.z;
+    }
+
+
 fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
-    // Initialize ambient contribution
-    var L_o = (*hit).ambient;
+    let prob = ((*hit).diffuse.x + (*hit).diffuse.y + (*hit).diffuse.z) / 3.0;
+    var L_e = vec3f(0.0);
+    if prob < rnd(t)
+    {
+        return L_e;
+    }
+    if ((*hit).emit)
+    {
+        L_e += (*hit).ambient;
+        (*hit).emit = false;
+        (*hit).throughput = vec3f(1.0,1.0,1.0);
+    }
+        (*hit).throughput = (*hit).throughput * (*hit).color / prob;
     var L_rd = vec3f(0.0);
 
-    // Initialize aggregated light properties
-    var avg_light_dir = vec3f(0.0);
-    var avg_light_intensity = vec3f(0.0);
-    var min_distance = T_MAX;
+    let phi = 2.0 * PI * rnd(t);
+    let theta = acos(sqrt(1.0 - rnd(t)));
+    let sin_theta = sin(theta);
+    let cos_theta = cos(theta);
+
+    let w_i = normalize(rotate_to_normal((*hit).normal, spherical_direction(sin_theta, cos_theta, phi)));
+
+    
+    //(*r) = Ray((*hit).position, w_i, T_MIN, T_MAX);
+    //(*hit).has_hit = false;
+
 
 
     // Aggregate light sources
 
     if (arrayLength(&lightIndices) == 0) {
-        return L_o;
+        return L_e;
     }
 
     // based on random u32 (variable t) select a random light triangle
@@ -414,9 +462,8 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
     let pdf = f32(arrayLength(&lightIndices));
 
     // Treat the averaged light as a single light source
-    // light is for certain not averaged in the most optimal way, requiring a large offset to avoid self-shadowing, but nonetheless logic wise is correctly set up
-    var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - 200);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0));
+    var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - T_MIN);
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0));
     
     // Check for shadow occlusion
     if (!intersect_scene(&shadow_ray, &shadow_hit)) {
@@ -424,7 +471,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
         L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color * pdf;
     }
 
-    return L_rd + L_o;
+    return (*hit).throughput * L_rd + L_e;
 }
 
 
@@ -434,7 +481,7 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     //let light = sample_point_light((*hit).position);
     let light = sample_directional_light();
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), false, vec3f(0.0));
     if (intersect_scene(&shadow_ray, &shadow_hit))
     {
         if ((shadow_hit.dist) < (*hit).dist)
@@ -461,6 +508,60 @@ fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     (*hit).color = vec3f(0.0, 0.0, 0.0);
     return (*hit).color;
 
+}
+
+fn fresnel_R(cos_theta_i: f32, cos_theta_t: f32, ior1_over_ior2: f32) -> f32
+{
+    let r_parallel = (ior1_over_ior2 * cos_theta_i - cos_theta_t) / (ior1_over_ior2 * cos_theta_i + cos_theta_t);
+    let r_perpendicular = (cos_theta_i - ior1_over_ior2 * cos_theta_t) / (cos_theta_i + ior1_over_ior2 * cos_theta_t);
+    return 0.5 * (r_parallel * r_parallel + r_perpendicular * r_perpendicular);
+}
+
+fn transparent(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
+{
+    // Find if the ray hits from inside or outside
+    let n1 = IOR_AIR; 
+    let n2 = IOR_GLASS;
+    var cos_theta_i = dot(-r.direction, (*hit).normal);
+    
+    //if the ray from inside of the object, swap the normal and the ior
+    if cos_theta_i < 0.0
+    {
+        cos_theta_i = -cos_theta_i;
+        (*hit).normal = -(*hit).normal;
+        (*hit).ior1_over_ior2 = n2/n1;
+    }
+    else
+    {
+        (*hit).ior1_over_ior2 = n1/n2;
+    }
+
+    let cos_theta_t2 = 1.0 - ((*hit).ior1_over_ior2 * (*hit).ior1_over_ior2 * (1.0 - cos_theta_i * cos_theta_i));
+    
+    // Check for total internal reflection
+    if (cos_theta_t2 < 0.0)
+    {
+        return mirror(r, hit);
+    }
+
+    // Russian roulette
+    let R = fresnel_R(cos_theta_i, sqrt(cos_theta_t2), (*hit).ior1_over_ior2);
+    if (rnd(t) < R)
+    {
+        return mirror(r, hit);
+    }
+
+    let refracted_direction = 
+        (*hit).ior1_over_ior2 * (cos_theta_i * (*hit).normal - (-r.direction)) - 
+        (*hit).normal * sqrt(cos_theta_t2);
+
+    // all of the above is equivalent to the following built-in webgpu function ....
+    //let refracted_direction_t = refract(r.direction, (*hit).normal, (*hit).ior1_over_ior2);
+
+    *r = Ray((*hit).position, normalize(refracted_direction), T_MIN, T_MAX);
+    
+    (*hit).has_hit = false;
+    return vec3f(0.0, 0.0, 0.0);
 }
 
 fn refraction(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
@@ -503,7 +604,7 @@ fn refraction(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     return vec3f(0.0, 0.0, 0.0);
 }
 
-fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
+fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
     // call phong and refraction functions and mix the results
     let phong_result = phong(r, hit);
@@ -608,7 +709,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         base_uv += jitter;
     }
     var r = get_camera_ray(base_uv);
-    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0));
+    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), true, vec3f(1.0));
     for(var i = 0; i < max_depth; i++) {
         if(intersect_scene(&r, &hit))
         { 
@@ -624,7 +725,6 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
             break; 
         }
     }
-
     // Progressive update of image
     let curr_sum = textureLoad(renderTexture, vec2u(fragcoord.xy), 0).rgb*f32(uniforms_uint.frameNumber);
     let accum_color = (result + curr_sum)/f32(uniforms_uint.frameNumber + 1u);
