@@ -443,8 +443,8 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
     let w_i = normalize(rotate_to_normal((*hit).normal, spherical_direction(sin_theta, cos_theta, phi)));
 
     
-    //(*r) = Ray((*hit).position, w_i, T_MIN, T_MAX);
-    //(*hit).has_hit = false;
+    (*r) = Ray((*hit).position, w_i, T_MIN, T_MAX);
+    (*hit).has_hit = false;
 
 
 
@@ -519,6 +519,7 @@ fn fresnel_R(cos_theta_i: f32, cos_theta_t: f32, ior1_over_ior2: f32) -> f32
 
 fn transparent(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
+    (*hit).emit = true;
     // Find if the ray hits from inside or outside
     let n1 = IOR_AIR; 
     let n2 = IOR_GLASS;
@@ -601,6 +602,7 @@ fn refraction(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     *r = Ray((*hit).position, normalize(refracted_direction), T_MIN, T_MAX);
     
     (*hit).has_hit = false;
+    (*hit).emit = true;
     return vec3f(0.0, 0.0, 0.0);
 }
 
@@ -717,7 +719,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         }
         else 
         { 
-            result += bgcolor.rgb;
+            //result += bgcolor.rgb;
             break; 
         }
         if(hit.has_hit) 

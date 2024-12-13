@@ -415,7 +415,7 @@ fn rotate_to_normal(n: vec3f, v: vec3f) -> vec3f
     let a = -1.0f/(1.0f + abs(n.z));
     let b = n.x*n.y*a;
     return vec3f(1.0f + n.x*n.x*a, b, -s*n.x)*v.x + vec3f(s*b, s*(1.0f + n.y*n.y*a), -n.y)*v.y + n*v.z;
-    }
+}
 
 
 fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
@@ -561,6 +561,7 @@ fn transparent(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functi
     *r = Ray((*hit).position, normalize(refracted_direction), T_MIN, T_MAX);
     
     (*hit).has_hit = false;
+    (*hit).emit = true;
     return vec3f(0.0, 0.0, 0.0);
 }
 
