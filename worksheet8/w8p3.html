@@ -50,6 +50,9 @@ const SHININESS_SPHERE: f32 = 6.0;
 const TEXTURE_SCALE: f32 = 0.2;
 
 
+const SPHERE_EXTINCTION: vec3f = vec3f(0.1 ,0.003, 0.00);
+
+
 
 struct Uniforms {
     eyePos: vec3<f32>,
@@ -133,6 +136,7 @@ struct HitInfo {
     texcoords: vec2f,
     emit: bool,
     throughput: vec3f,
+    extinction: vec3f,
 };
 
 struct Light {
@@ -189,6 +193,7 @@ fn intersect_sphere(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, center
     (*hit).diffuse = DIFFUSE_REFLECTANCE;
     (*hit).specular = SPECULAR_SPHERE;
     (*hit).shininess = SHININESS_SPHERE;
+    (*hit).extinction = SPHERE_EXTINCTION;
     return true;
     
 }
@@ -430,9 +435,8 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
     {
         L_e += (*hit).ambient;
         (*hit).emit = false;
-        (*hit).throughput = vec3f(1.0,1.0,1.0);
     }
-        (*hit).throughput = (*hit).throughput * (*hit).color / prob;
+        (*hit).throughput *= (*hit).color / prob;
     var L_rd = vec3f(0.0);
 
     let phi = 2.0 * PI * rnd(t);
@@ -463,15 +467,16 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
 
     // Treat the averaged light as a single light source
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - T_MIN);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0));
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
     
     // Check for shadow occlusion
     if (!intersect_scene(&shadow_ray, &shadow_hit)) {
         let n = normalize((*hit).normal);
-        L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * (*hit).color * pdf;
+    L_rd += (*hit).color/ PI * light.L_i * max(dot(n, light.w_i), 0.0) * pdf;
+        //L_rd += (*hit).diffuse / PI * light.L_i * max(dot(n, light.w_i), 0.0) * vec3f(1.0) * pdf;
     }
 
-    return (*hit).throughput * L_rd + L_e;
+    return ( L_rd + L_e);
 }
 
 
@@ -481,7 +486,7 @@ fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     //let light = sample_point_light((*hit).position);
     let light = sample_directional_light();
     var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), false, vec3f(0.0));
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
     if (intersect_scene(&shadow_ray, &shadow_hit))
     {
         if ((shadow_hit.dist) < (*hit).dist)
@@ -503,7 +508,10 @@ fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
     //let light = sample_point_light((*hit).position);
     let direction = reflect(r.direction, (*hit).normal);
-    *r = Ray((*hit).position, direction, T_MIN, T_MAX);
+    (*r).origin = (*hit).position;
+    (*r).direction = direction;
+    (*r).tmin = T_MIN;
+    (*r).tmax = T_MAX;
     (*hit).has_hit = false;
     (*hit).color = vec3f(0.0, 0.0, 0.0);
     return (*hit).color;
@@ -520,48 +528,67 @@ fn fresnel_R(cos_theta_i: f32, cos_theta_t: f32, ior1_over_ior2: f32) -> f32
 fn transparent(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
 {
     (*hit).emit = true;
+
     // Find if the ray hits from inside or outside
     let n1 = IOR_AIR; 
     let n2 = IOR_GLASS;
-    var cos_theta_i = dot(-r.direction, (*hit).normal);
+    var cos_theta_i = dot(-(*r).direction, (*hit).normal);
+    var entering = true;
     
-    //if the ray from inside of the object, swap the normal and the ior
+    // If the ray is from inside of the object, swap the normal and the IOR
     if cos_theta_i < 0.0
     {
         cos_theta_i = -cos_theta_i;
         (*hit).normal = -(*hit).normal;
-        (*hit).ior1_over_ior2 = n2/n1;
+        (*hit).ior1_over_ior2 = n2 / n1;
+        entering = false;
+        
     }
     else
     {
-        (*hit).ior1_over_ior2 = n1/n2;
+        (*hit).ior1_over_ior2 = n1 / n2;
     }
 
+    // Compute cos(theta_t)^2 using Snell's law
     let cos_theta_t2 = 1.0 - ((*hit).ior1_over_ior2 * (*hit).ior1_over_ior2 * (1.0 - cos_theta_i * cos_theta_i));
-    
+
     // Check for total internal reflection
     if (cos_theta_t2 < 0.0)
     {
         return mirror(r, hit);
     }
 
-    // Russian roulette
+    // Russian roulette for reflection using Fresnel reflection coefficient
     let R = fresnel_R(cos_theta_i, sqrt(cos_theta_t2), (*hit).ior1_over_ior2);
     if (rnd(t) < R)
     {
         return mirror(r, hit);
     }
-
+    // Compute the refraction direction
     let refracted_direction = 
         (*hit).ior1_over_ior2 * (cos_theta_i * (*hit).normal - (-r.direction)) - 
         (*hit).normal * sqrt(cos_theta_t2);
 
-    // all of the above is equivalent to the following built-in webgpu function ....
-    //let refracted_direction_t = refract(r.direction, (*hit).normal, (*hit).ior1_over_ior2);
-
-    *r = Ray((*hit).position, normalize(refracted_direction), T_MIN, T_MAX);
+    // Set the new ray's origin and direction for refraction
+    (*r).origin = (*hit).position;
+    (*r).direction = normalize(refracted_direction);
+    (*r).tmin = T_MIN;
+    (*r).tmax = T_MAX;
     
     (*hit).has_hit = false;
+
+    // only if the ray is exiting the object
+    if (!entering)
+    {
+        var beam_tr = exp(-(*hit).extinction * (*hit).dist);
+        var beam_prob = (beam_tr[0] + beam_tr[1] + beam_tr[2]) / 3;
+        (*hit).has_hit = select(true, false, rnd(t) < beam_prob);
+        (*hit).throughput *= beam_tr / beam_prob;
+    }
+    
+
+    // Transmission: Apply attenuation and Russian roulette for absorption
+    
     return vec3f(0.0, 0.0, 0.0);
 }
 
@@ -711,11 +738,11 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         base_uv += jitter;
     }
     var r = get_camera_ray(base_uv);
-    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), true, vec3f(1.0));
+    var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), true, vec3f(1.0),vec3f(1.0));
     for(var i = 0; i < max_depth; i++) {
         if(intersect_scene(&r, &hit))
         { 
-            result += shade(&r, &hit, &t); 
+            result += hit.throughput * shade(&r, &hit, &t); 
         }
         else 
         { 
@@ -743,3 +770,4 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     </body>
 
     </html>
+ex
