@@ -4,10 +4,10 @@ const padding = 0.0;
 
 
 class Camera {
-    eyePos = vec3(277.0, 275.0, -570.0);
-    lookat = vec3(277.0, 275.0, 0.0);
+    eyePos = vec3(0.15, 4.5, 10.0);
+    lookat = vec3(0.15, 1.5, 0.0);
     up = vec3(0.0, 1.0, 0.0);
-    cam_const = 1.0;
+    cam_const = 1.5;
 };
 
 
@@ -21,6 +21,8 @@ var uniformBuffer_f, uniformBuffer_ui;
 var progressiveSampling = 0;
 var frameNumber = 0;
 var textures;
+
+var objectShader = 1;
 
 
 
@@ -64,23 +66,50 @@ async function main() {
         code: document.getElementById("wgsl").text
     });
 
-    addEventListener("wheel", (event) => {
-        // camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
-        // uniforms_f[3] = camera.cam_const;
-        // device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
-        // console.log("camera.cam_const = " + camera.cam_const);
-        // animate();
-        });
 
     addEventListener("wheel", (event) => {
         camera.cam_const *= 1.0 + 2.5e-4*event.deltaY;
         uniforms_f[3] = camera.cam_const;
         device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
         console.log("camera.cam_const = " + camera.cam_const);
-        animate();
+        // start render texture from scratch
+        frameNumber = 0;
+        uniforms_ui[3] = frameNumber;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        requestAnimationFrame(animate);
         });
 
     const progressiveSamplingCheckbox = document.getElementById('progressiveSampling');
+
+    const dropdown = document.getElementById('objectShader');
+
+    dropdown.addEventListener('change', function() {
+        const selectedOption = dropdown.value;
+        if (selectedOption == "Diffuse")
+        {
+            objectShader = 1;
+        }
+        if (selectedOption == "Mirror")
+        {
+            objectShader = 3;
+        }
+        if (selectedOption == "Base")
+        {
+            //default
+            objectShader = 66;
+        }
+        uniforms_ui[4] = objectShader;
+        console.log("objectShader = " + objectShader);
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        // start render texture from scratch
+        frameNumber = 0;
+        uniforms_ui[3] = frameNumber;
+        device.queue.writeBuffer(uniformBuffer_ui, 0, uniforms_ui);
+        requestAnimationFrame(animate);
+
+        
+    });
+
     
     progressiveSamplingCheckbox.addEventListener('change', function() {
             if (progressiveSamplingCheckbox.checked)
@@ -146,7 +175,7 @@ async function main() {
     device.queue.writeBuffer(uniformBuffer_f, 0, uniforms_f);
 
     uniforms_ui = new Uint32Array([
-        progressiveSampling, canvas.width, canvas.height, frameNumber
+        progressiveSampling, canvas.width, canvas.height, frameNumber, objectShader
     ]);
     uniformBuffer_ui = device.createBuffer({
         label: 'uniforms_ui',
@@ -169,11 +198,12 @@ async function main() {
 
         // var alignedIndices = new Uint32Array(triangle.faceIndices.flat());
 
-    const obj_filename = '../data/objects/CornellBox.obj';
+    const obj_filename = '../data/objects/teapot.obj';
     var drawingInfo = await readOBJFile(obj_filename, 1, true);
     console.log("drawingInfo = ", drawingInfo);
     var buffers = new Object();
     build_bsp_tree(drawingInfo, device, buffers);
+    
     console.log("buffers: ",buffers);
     console.log(drawingInfo.materials)
     console.log(drawingInfo.mat_indices)
@@ -186,8 +216,8 @@ async function main() {
     //var normalsBuffer = set_up_normal_buffer(device, drawingInfo.normals);
     var materialsBuffer = set_up_materials_buffer(device, drawingInfo.materials);
     //var mat_indicesBuffer = set_up_material_indices_buffer(device, drawingInfo.mat_indices);
-    // drawingInfo.light_indices = new Uint32Array([0]);
-    var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
+    //  drawingInfo.light_indices = new Uint32Array([0]);
+    // var light_indicesBuffer = set_up_lifght_indices_buffer(device, drawingInfo.light_indices);
     
     textures = new Object();
     textures.width = canvas.width;
@@ -202,6 +232,8 @@ async function main() {
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     format: 'rgba32float',
     });
+
+    textures.env = await load_texture(device, '../data/luxo_pxr_campus.jpg');
     
 
     const bindGroup = device.createBindGroup({
@@ -216,11 +248,12 @@ async function main() {
     //{ binding: 6, resource: { buffer: normalsBuffer } },
     { binding: 7, resource: { buffer: materialsBuffer } },
     //{ binding: 8, resource: { buffer: mat_indicesBuffer } },
-    { binding: 9, resource: { buffer: light_indicesBuffer } },
+    //{ binding: 9, resource: { buffer: light_indicesBuffer } },
     { binding: 10, resource: { buffer: buffers.aabb } },
     { binding: 11, resource: { buffer: buffers.treeIds}},
     { binding: 12, resource: { buffer: buffers.bspTree}},
-    { binding: 13, resource: { buffer: buffers.bspPlanes}}
+    { binding: 13, resource: { buffer: buffers.bspPlanes}},
+    { binding: 14, resource: textures.env.createView() },
     ],
     });
 
@@ -248,17 +281,17 @@ function render(device, context, pipeline, textures, bindGroup)
     device.queue.submit([encoder.finish()]);
 }
 
-function set_up_position_buffer(device, vertices)
-{
-    console.log("vertices = ", vertices);
-    const positionsBuffer = device.createBuffer({
-        label: 'positions',
-        size: vertices.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
-        });
-    device.queue.writeBuffer(positionsBuffer, 0, vertices);
-    return positionsBuffer;
-}
+// function set_up_position_buffer(device, vertices)
+// {
+//     console.log("vertices = ", vertices);
+//     const positionsBuffer = device.createBuffer({
+//         label: 'positions',
+//         size: vertices.byteLength,
+//         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+//         });
+//     device.queue.writeBuffer(positionsBuffer, 0, vertices);
+//     return positionsBuffer;
+// }
 
 function set_up_index_buffer(device, indices)
 {
@@ -271,17 +304,17 @@ function set_up_index_buffer(device, indices)
     device.queue.writeBuffer(indexBuffer, 0, indices);
     return indexBuffer;
 }
-function set_up_normal_buffer(device, normals)
-{
-    console.log("normals = ", normals);
-    const normalsBuffer = device.createBuffer({
-        label: 'normals',
-        size: normals.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
-        });
-    device.queue.writeBuffer(normalsBuffer, 0, normals);
-    return normalsBuffer;
-}
+// function set_up_normal_buffer(device, normals)
+// {
+//     console.log("normals = ", normals);
+//     const normalsBuffer = device.createBuffer({
+//         label: 'normals',
+//         size: normals.byteLength,
+//         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+//         });
+//     device.queue.writeBuffer(normalsBuffer, 0, normals);
+//     return normalsBuffer;
+// }
 
 function set_up_materials_buffer(device, materials)
 {
@@ -312,27 +345,27 @@ function set_up_materials_buffer(device, materials)
     return materialsBuffer;
 }
 
-function set_up_material_indices_buffer(device, mat_indices)
-{
-    console.log("mat_indices = ", mat_indices);
-    const mat_indicesBuffer = device.createBuffer({
-        size: mat_indices.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
-        });
-    device.queue.writeBuffer(mat_indicesBuffer, 0, mat_indices);
-    return mat_indicesBuffer;
-}
+// function set_up_material_indices_buffer(device, mat_indices)
+// {
+//     console.log("mat_indices = ", mat_indices);
+//     const mat_indicesBuffer = device.createBuffer({
+//         size: mat_indices.byteLength,
+//         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+//         });
+//     device.queue.writeBuffer(mat_indicesBuffer, 0, mat_indices);
+//     return mat_indicesBuffer;
+// }
 
-function set_up_lifght_indices_buffer(device, light_indices)
-{
-    console.log("light_indices = ", light_indices);
-    const light_indicesBuffer = device.createBuffer({
-        size: light_indices.byteLength,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
-        });
-    device.queue.writeBuffer(light_indicesBuffer, 0, light_indices);
-    return light_indicesBuffer;
-}
+// function set_up_lifght_indices_buffer(device, light_indices)
+// {
+//     console.log("light_indices = ", light_indices);
+//     const light_indicesBuffer = device.createBuffer({
+//         size: light_indices.byteLength,
+//         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE
+//         });
+//     device.queue.writeBuffer(light_indicesBuffer, 0, light_indices);
+//     return light_indicesBuffer;
+// }
 
 
 
