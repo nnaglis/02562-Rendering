@@ -2,12 +2,12 @@
 <html>
 
 <head>
-<title > W9P2</title>
+<title > W9P3</title>
 <script type="text/javascript" src="../common/MV.js"></script>
 <script type="text/javascript" src="../common/OBJParser_interleaved.js"></script>
 <script type="text/javascript" src="../common/Aabb.js"></script>
 <script type="text/javascript" src="../common/BspTree_interleaved.js"></script>
-<script type = "text/javascript" src = "w9p2.js"></script>
+<script type = "text/javascript" src = "w9p3.js"></script>
 </head>
 
 <body>
@@ -15,7 +15,7 @@
     <label for="progressiveSampling">Progressive sampling:</label>
         <input type="checkbox" id="progressiveSampling" name="progressiveSampling" value="0">
 
-    <label for="options">Object shader :</label>
+    <label for="options">Object shader (added a bit of randomness to the directional light for softer shadows):</label>
         <select id="objectShader" name="objectShaderOptions">
             <option value="Diffuse" selected>Diffuse</option>
             <option value="Mirror">Mirror</option>
@@ -38,8 +38,8 @@ const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
 );
 
 const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
-const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(1.0 , -0.3, -0.3);
-const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
+const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(1.0 , -0.3, -0.12);
+const LIGHT_INTENSITY: vec3f = vec3f(PI);
 //const LIGHT_INTENSITY: vec3f = vec3f(50, 50, 50);
 
 const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
@@ -254,7 +254,7 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
 
 fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
 {
-    let plane_position = vec3f(0.0, 0.0, 0.0);
+    let plane_position = vec3f(0.0, -0.1, 0.0);
     let plane_normal = vec3f(0.0, 1.0, 0.0);
     let t = dot( plane_position - ray.origin, plane_normal) / dot(ray.direction,plane_normal);
     if (t > ray.tmin && t < ray.tmax)
@@ -266,8 +266,9 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
         (*hit).normal = plane_normal;
         let u = 0.5 + atan2(ray.direction.x, -ray.direction.z) / (2.0 * PI);
         let v = 1/PI * acos(-ray.direction.y);
-        let RGBE = texture(envTexture, vec2f(u, v), false, true);
-        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        //let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        let RGB = texture(envTexture, vec2f(u, v), false, true).xyz;
         (*hit).color = RGB;
         (*hit).shader = 6;
         (*hit).ambient = vec3f(0.0);
@@ -385,9 +386,19 @@ fn sample_point_light(pos: vec3f) -> Light
     return Light(L_i, w_i, dist);
 }
 
-fn sample_directional_light() -> Light
+fn sample_directional_light(hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> Light
 {
-    return Light(vec3f(0.0), normalize(-DIRECTIONAL_LIGHT_DIRECTION), T_MAX);
+    //adding some randomness to the light direction to make shadows look softer (more realistic)
+    let x_rand = rnd(t) * 0.1;
+    let y_rand = rnd(t) * 0.1;
+    let z_rand = rnd(t) * 0.1;
+    let light_wi = normalize(-DIRECTIONAL_LIGHT_DIRECTION + vec3f(x_rand, y_rand, z_rand));
+    
+    //let light_wi = normalize(-DIRECTIONAL_LIGHT_DIRECTION + w_i);
+
+
+
+    return Light(LIGHT_INTENSITY, normalize(light_wi), T_MAX);
 }
 
 fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> Light
@@ -428,11 +439,11 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u3
 {
     switch (*hit).shader {
         case 1 { return lambertian(r, hit, t); }
-        case 2 { return phong(r, hit); }
+        //case 2 { return phong(r, hit); }
         case 3 { return mirror(r, hit); }
         //case 4 { return refraction(r, hit); }
         case 4 { return transparent(r, hit, t); }
-        case 5 { return glossy(r, hit, t); }
+        //case 5 { return glossy(r, hit, t); }
         case 6 { return holdout(r, hit, t); }
         case default { return (*hit).color + (*hit).ambient; }
         //case default { return phong(r, hit); }
@@ -458,13 +469,24 @@ fn holdout(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, 
 
     let light_samples = 10u;
 
-    let light = sample_environment_light(t, hit);
+    let light_directional = sample_directional_light(hit ,t);
 
     //let pdf = f32(arrayLength(&lightIndices));
     let pdf = 1.0 / f32(light_samples);
 
-    for (var i=0u; i < light_samples; i++) {
+    var L_dir = vec3f(0.0);
+    var shadowed = true;
 
+    var shadow_ray = Ray((*hit).position, light_directional.w_i, T_MIN, light_directional.dist - T_MIN);
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
+    if (!intersect_scene(&shadow_ray, &shadow_hit)) {
+        shadowed = false;
+        let n = normalize((*hit).normal);
+        L_dir = (*hit).color * vec3f(0.0) * max(dot(n, light_directional.w_i), 0.0);
+    }
+
+    for (var i=0u; i < light_samples; i++) {
+        let light = sample_environment_light(t, hit);
         var isLight = 0.0;   
         if (length(light.L_i) != length(vec3f(0.0))) {
             isLight = 1.0;
@@ -478,12 +500,18 @@ fn holdout(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, 
         // Check for shadow occlusion
         if (!intersect_scene(&shadow_ray, &shadow_hit)) {
         //return vec3f((*hit).color);
-        L_rd += (*hit).color * isLight  * pdf;
+            L_rd += (*hit).color * isLight  * pdf;
+            
+            if (shadowed) {
+                (*hit).has_hit = false;
+                L_rd /= 2.0;
+                }
         }
         else{
-            //L_rd += vec3f(0.0);
+            L_rd += vec3f(0.0);
         }
     }
+    //return L_rd + L_dir;
     return L_rd;
 }
 
@@ -507,9 +535,10 @@ fn sample_environment_light(t: ptr<function, u32>, hit: ptr<function, HitInfo>) 
         // Accumulate the radiance
         let u = 0.5 + atan2(shadow_ray.direction.x, -shadow_ray.direction.z) / (2.0 * PI);
         let v = 1/PI * acos(-shadow_ray.direction.y);
-        let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        //let RGBE = texture(envTexture, vec2f(u, v), false, true);
         //convert RGBE to RGB
-        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        let RGB = texture(envTexture, vec2f(u, v), false, true).xyz;
         return Light(RGB, w_i, T_MAX);
     }
     else
@@ -576,7 +605,7 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
     //let index = u32(rnd(t) * f32(arrayLength(&lightIndices)));
     
     //let light = sample_area_light(lightIndices[index], hit, t);
-    let light = sample_directional_light();
+    let light = sample_directional_light(hit, t);
 
     //let pdf = f32(arrayLength(&lightIndices));
     let pdf = 1.0;
@@ -596,29 +625,6 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
 }
 
 
-//not used as of P1
-fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
-{
-    //let light = sample_point_light((*hit).position);
-    let light = sample_directional_light();
-    var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist);
-    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0),0,0,0,0,vec3f(0.0),vec3f(0.0),vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
-    if (intersect_scene(&shadow_ray, &shadow_hit))
-    {
-        if ((shadow_hit.dist) < (*hit).dist)
-        {
-            return vec3f(0.0);
-        }
-    }
-    let k_d = (*hit).diffuse / PI * (*hit).color;
-    let k_s = (*hit).specular * ((*hit).shininess + 2.0) / (2.0 * PI);
-    let n = normalize((*hit).normal);
-    let w_r = reflect(-light.w_i, n);
-    let w_o = -r.direction;
-    let L_r = light.L_i * (k_d+ k_s * pow(max(dot(w_r, w_o), 0.0), (*hit).shininess)) * dot(n, light.w_i);
-    return L_r;
-    //return vec3f(0.0);
-}
 
 fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
 {
@@ -749,14 +755,6 @@ fn refraction(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
     return vec3f(0.0, 0.0, 0.0);
 }
 
-fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
-{
-    // call phong and refraction functions and mix the results
-    let phong_result = phong(r, hit);
-    let refraction_result = refraction(r, hit);
-    return phong_result + refraction_result;
-}
-
 fn texture_nearest(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec4f {
     let res = textureDimensions(texture);
     let st = select(clamp(texcoords, vec2f(0), vec2f(1)), texcoords - floor(texcoords), repeat);
@@ -864,9 +862,11 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         { 
             let u = 0.5 + atan2(r.direction.x, -r.direction.z) / (2.0 * PI);
             let v = 1/PI * acos(-r.direction.y);
-            let RGBE = texture(envTexture, vec2f(u, v), false, true);
+            //let RGBE = texture(envTexture, vec2f(u, v), false, true);
             //convert RGBE to RGB
-            let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+            //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+            let RGB = texture(envTexture, vec2f(u, v), false, true).xyz;
+            
             result += hit.throughput * RGB;
             break; 
         }
@@ -879,7 +879,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     let curr_sum = textureLoad(renderTexture, vec2u(fragcoord.xy), 0).rgb*f32(uniforms_uint.frameNumber);
     let accum_color = (result + curr_sum)/f32(uniforms_uint.frameNumber + 1u);
     var fsOut: FSOut;
-    const gamma = 2.2;
+    const gamma = 1.0;
     fsOut.frame = vec4f(pow(accum_color, vec3f(1.0/gamma)), 1.0);
     fsOut.accum = vec4f(accum_color, 1.0);
     return fsOut;
