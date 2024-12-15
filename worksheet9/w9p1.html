@@ -39,7 +39,7 @@ const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
 
 const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
 const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(1.0 , -0.3, -0.3);
-const LIGHT_INTENSITY: vec3f = vec3f(PI, PI, PI);
+const LIGHT_INTENSITY: vec3f = vec3f(0.0);
 //const LIGHT_INTENSITY: vec3f = vec3f(50, 50, 50);
 
 const DIFFUSE_REFLECTANCE: vec3f = vec3f(0.9);
@@ -214,11 +214,6 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     let e1 = vertexAttributes[face[2]].vPosition - vertexAttributes[face[0]].vPosition;
 
     var normal = cross(e0, e1);
-
-    let denom = dot(ray.direction, normalize(normal));
-    if (abs(denom) < T_MIN) {
-        return false; // Ray is parallel to the triangle
-    }
     
     let beta = dot(cross((vertexAttributes[face[0]].vPosition - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
 

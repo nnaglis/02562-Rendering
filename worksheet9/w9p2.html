@@ -7,6 +7,7 @@
 <script type="text/javascript" src="../common/OBJParser_interleaved.js"></script>
 <script type="text/javascript" src="../common/Aabb.js"></script>
 <script type="text/javascript" src="../common/BspTree_interleaved.js"></script>
+<script type="text/javascript" src="../common/hdrpng.min.js"></script>
 <script type = "text/javascript" src = "w9p2.js"></script>
 </head>
 
@@ -28,7 +29,7 @@
 const PI = 3.14;
 
 const PLANE_POSITION: vec3f = vec3f(0.0, 0.0, 0.0);
-const PLANE_COLOR : vec3f = vec3f(0.1, 0.7, 0.0);
+const PLANE_COLOR : vec3f = vec3f(1.0, 0.0, 0.0);
 const SPHERE_COLOR: vec3f = vec3f(0.2, 0.2, 0.2);
 const TRIANGLE_COLOR: vec3f = vec3f(0.9, 0.9, 0.9);
 const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
@@ -215,10 +216,10 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
 
     var normal = cross(e0, e1);
 
-    let denom = dot(ray.direction, normalize(normal));
-    if (abs(denom) < T_MIN) {
-        return false; // Ray is parallel to the triangle
-    }
+    //let denom = dot(ray.direction, normalize(normal));
+    //if (abs(denom) < T_MIN) {
+    //    return false; // Ray is parallel to the triangle
+    //}
     
     let beta = dot(cross((vertexAttributes[face[0]].vPosition - ray.origin), ray.direction), e1) / (dot(ray.direction, normal));
 
@@ -250,6 +251,32 @@ fn intersect_triangle(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>, face
     (*hit).shininess = SHININESS_SPHERE;
     return true;
 
+}
+
+fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
+{
+    let plane_position = vec3f(0.0, 0.0, 0.0);
+    let plane_normal = vec3f(0.0, 1.0, 0.0);
+    let t = dot( plane_position - ray.origin, plane_normal) / dot(ray.direction,plane_normal);
+    if (t > ray.tmin && t < ray.tmax)
+    {
+        (*ray).tmax = t;
+        (*hit).has_hit = false;
+        (*hit).dist = t;
+        (*hit).position = ray.origin + t * ray.direction;
+        (*hit).normal = plane_normal;
+        let u = 0.5 + atan2(ray.direction.x, -ray.direction.z) / (2.0 * PI);
+        let v = 1/PI * acos(-ray.direction.y);
+        let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        (*hit).color = RGB;
+        (*hit).shader = 6;
+        (*hit).ambient = vec3f(0.0);
+        (*hit).diffuse = vec3f(1.0);
+        (*hit).has_hit = true;
+    return true;
+    }
+    return false;
 }
 
 fn intersect_min_max(r: ptr<function, Ray>) -> bool
@@ -338,7 +365,7 @@ fn intersect_scene(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
 // Define scene data as constants.
 // Call an intersection function for each object.
 // For each intersection found, update (*r).tmax and store additional info about the hit.
-    //intersect_plane(ray, hit, PLANE_POSITION, plane_onb, use_repeat, use_linear, use_texture);
+    intersect_plane(ray, hit);
     //
     if (intersect_min_max(ray)) {
     //intersect_sphere(ray, hit, vec3f(420.0, 90.0, 370.0), 90.0, 3);
@@ -361,7 +388,7 @@ fn sample_point_light(pos: vec3f) -> Light
 
 fn sample_directional_light() -> Light
 {
-    return Light(LIGHT_INTENSITY, normalize(-DIRECTIONAL_LIGHT_DIRECTION), T_MAX);
+    return Light(vec3f(0.0), normalize(-DIRECTIONAL_LIGHT_DIRECTION), T_MAX);
 }
 
 fn sample_area_light(triangeIndex: u32, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> Light
@@ -407,11 +434,90 @@ fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u3
         //case 4 { return refraction(r, hit); }
         case 4 { return transparent(r, hit, t); }
         case 5 { return glossy(r, hit, t); }
+        case 6 { return holdout(r, hit, t); }
         case default { return (*hit).color + (*hit).ambient; }
         //case default { return phong(r, hit); }
     }
 }
 
+
+fn holdout(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u32>) -> vec3f
+{
+    (*hit).throughput *= (*hit).color;
+    var L_rd = vec3f(0.0);
+
+    let phi = 2.0 * PI * rnd(t);
+    let theta = acos(sqrt(1.0 - rnd(t)));
+    let sin_theta = sin(theta);
+    let cos_theta = cos(theta);
+
+    let w_i = normalize(rotate_to_normal((*hit).normal, spherical_direction(sin_theta, cos_theta, phi)));
+
+    
+    (*r) = Ray((*hit).position, w_i, T_MIN, T_MAX);
+    (*hit).has_hit = true;
+
+    let light_samples = 10u;
+
+    let light = sample_environment_light(t, hit);
+
+    //let pdf = f32(arrayLength(&lightIndices));
+    let pdf = 1.0 / f32(light_samples);
+
+    for (var i=0u; i < light_samples; i++) {
+
+        var isLight = 0.0;   
+        if (length(light.L_i) != length(vec3f(0.0))) {
+            isLight = 1.0;
+        }
+
+
+        // Treat the averaged light as a single light source
+        var shadow_ray = Ray((*hit).position, light.w_i, T_MIN, light.dist - T_MIN);
+        var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
+        
+        // Check for shadow occlusion
+        if (!intersect_scene(&shadow_ray, &shadow_hit)) {
+        //return vec3f((*hit).color);
+        L_rd += (*hit).color * isLight  * pdf;
+        }
+        else{
+            //L_rd += vec3f(0.0);
+        }
+    }
+    return L_rd;
+}
+
+fn sample_environment_light(t: ptr<function, u32>, hit: ptr<function, HitInfo>) -> Light
+{
+    let phi = 2.0 * PI * rnd(t);  // Azimuthal angle
+    let theta = acos(sqrt(1.0 - rnd(t)));  // Polar angle (from zenith)
+    let sin_theta = sin(theta);
+    let cos_theta = cos(theta);
+
+    // Calculate the direction in world space
+    let w_i = normalize(rotate_to_normal((*hit).normal, spherical_direction(sin_theta, cos_theta, phi)));
+
+    // Create a shadow ray
+    var shadow_ray = Ray((*hit).position, w_i, T_MIN, T_MAX);
+    var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec3f(0.0), vec3f(0.0), vec2f(0.0), false, vec3f(0.0), vec3f(0.0));
+
+    // Check for shadow occlusion
+    if (!intersect_scene(&shadow_ray, &shadow_hit))
+    {
+        // Accumulate the radiance
+        let u = 0.5 + atan2(shadow_ray.direction.x, -shadow_ray.direction.z) / (2.0 * PI);
+        let v = 1/PI * acos(-shadow_ray.direction.y);
+        let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        //convert RGBE to RGB
+        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        return Light(RGB, w_i, T_MAX);
+    }
+    else
+    {
+        return Light(vec3f(0.0), vec3f(0.0), T_MAX);
+    }
+}
 
 // Given spherical coordinates, where theta is the polar angle and phi is the
 // azimuthal angle, this function returns the corresponding direction vector
@@ -436,10 +542,10 @@ fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<functio
 {
     let prob = ((*hit).diffuse.x + (*hit).diffuse.y + (*hit).diffuse.z) / 3.0;
     var L_e = vec3f(0.0);
-    if prob < rnd(t)
-    {
-        return L_e;
-    }
+    //if prob < rnd(t)
+    //{
+    //    return L_e;
+    //}
     if ((*hit).emit)
     {
         L_e += (*hit).ambient;
@@ -652,16 +758,16 @@ fn glossy(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, u
     return phong_result + refraction_result;
 }
 
-fn texture_nearest(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec3f {
+fn texture_nearest(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec4f {
     let res = textureDimensions(texture);
     let st = select(clamp(texcoords, vec2f(0), vec2f(1)), texcoords - floor(texcoords), repeat);
     let ab = st*vec2f(res);
     let UV = vec2u(ab + 0.5) % res;
     let texcolor = textureLoad(texture, UV, 0);
-    return texcolor.rgb;
+    return texcolor.rgba;
 }
 
-fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec3f {
+fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> vec4f {
     let res = textureDimensions(texture);
     let st = select(clamp(texcoords, vec2f(0), vec2f(1)), texcoords - floor(texcoords), repeat);
     let ab = st*vec2f(res);
@@ -676,10 +782,10 @@ fn texture_linear(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool) -> v
     let texcolor4 = mix(texcolor, texcolor1, frac.x);
     let texcolor5 = mix(texcolor2, texcolor3, frac.x);
     let texcolor6 = mix(texcolor4, texcolor5, frac.y);
-    return texcolor6.rgb;
+    return texcolor6.rgba;
 }
 
-fn texture(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool, linear: bool) -> vec3f {
+fn texture(texture: texture_2d<f32>, texcoords: vec2f, repeat: bool, linear: bool) -> vec4f {
     if (linear)
     {
         return texture_linear(texture, texcoords, repeat);
@@ -759,7 +865,10 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         { 
             let u = 0.5 + atan2(r.direction.x, -r.direction.z) / (2.0 * PI);
             let v = 1/PI * acos(-r.direction.y);
-            result += texture(envTexture, vec2f(u, v), false, true);
+            let RGBE = texture(envTexture, vec2f(u, v), false, true);
+            //convert RGBE to RGB
+            let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+            result += hit.throughput * RGB;
             break; 
         }
         if(hit.has_hit) 
@@ -771,7 +880,8 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     let curr_sum = textureLoad(renderTexture, vec2u(fragcoord.xy), 0).rgb*f32(uniforms_uint.frameNumber);
     let accum_color = (result + curr_sum)/f32(uniforms_uint.frameNumber + 1u);
     var fsOut: FSOut;
-    fsOut.frame = vec4f(pow(accum_color, vec3f(1.0/1.0)), 1.0);
+    const gamma = 2.2;
+    fsOut.frame = vec4f(pow(accum_color, vec3f(1.0/gamma)), 1.0);
     fsOut.accum = vec4f(accum_color, 1.0);
     return fsOut;
 }

@@ -24,7 +24,23 @@ var textures;
 
 var objectShader = 1;
 
-
+async function loadHDRTexture(device, filename)
+{
+    const response = await fetch(filename);
+    const blob = await response.blob();
+    const img = await createImageBitmap(blob, { colorSpaceConversion: 'none' });
+    const texture = device.createTexture({
+    size: [img.width, img.height, 1],
+    format: "rgba32float",
+    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    device.queue.copyExternalImageToTexture(
+    { source: img, flipY: true },
+    { texture: texture },
+    { width: img.width, height: img.height },
+    );
+    return texture;
+}
 
 async function load_texture(device, filename)
 {
@@ -233,8 +249,7 @@ async function main() {
     format: 'rgba32float',
     });
 
-    textures.env = await load_texture(device, '../data/luxo_pxr_campus.jpg');
-    
+    textures.env = await loadHDRTexture(device, '../data/luxo_pxr_campus.hdr.png');
 
     const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -366,8 +381,3 @@ function set_up_materials_buffer(device, materials)
 //     device.queue.writeBuffer(light_indicesBuffer, 0, light_indices);
 //     return light_indicesBuffer;
 // }
-
-
-
-    
-    
