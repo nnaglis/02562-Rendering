@@ -39,7 +39,9 @@ const TRIANGLE_VERTICES: array<vec3f, 3> = array<vec3f, 3>(
 );
 
 const LIGHT_POSITION: vec3f = vec3f(0.0, 1.0, 0.0);
-const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(1.0 , -0.3, -0.12);
+const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(-1.3 , -2.2, 3.0);
+//const DIRECTIONAL_LIGHT_DIRECTION: vec3f = vec3f(-2.0 , -3, 3.0);
+
 const LIGHT_INTENSITY: vec3f = vec3f(PI);
 //const LIGHT_INTENSITY: vec3f = vec3f(50, 50, 50);
 
@@ -267,9 +269,9 @@ fn intersect_plane(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool
         (*hit).normal = plane_normal;
         let u = 0.5 + atan2(ray.direction.x, -ray.direction.z) / (2.0 * PI);
         let v = 1/PI * acos(-ray.direction.y);
-        //let RGBE = texture(envTexture, vec2f(u, v), false, true);
-        //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
-        let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
+        let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        //let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
         (*hit).color = RGB;
         (*hit).shader = 6;
         (*hit).ambient = vec3f(0.0);
@@ -488,7 +490,7 @@ fn holdout(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, t: ptr<function, 
 
     for (var i=0u; i < light_samples; i++) {
         let light = sample_environment_light(t, hit);
-        var isLight = 0.4;   
+        var isLight = 0.0;   
         if (length(light.L_i) != length(vec3f(0.0))) {
             isLight = 1.0;
         }
@@ -536,10 +538,10 @@ fn sample_environment_light(t: ptr<function, u32>, hit: ptr<function, HitInfo>) 
         // Accumulate the radiance
         let u = 0.5 + atan2(shadow_ray.direction.x, -shadow_ray.direction.z) / (2.0 * PI);
         let v = 1/PI * acos(-shadow_ray.direction.y);
-        //let RGBE = texture(envTexture, vec2f(u, v), false, true);
+        let RGBE = texture(envTexture, vec2f(u, v), false, true);
         //convert RGBE to RGB
-        //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
-        let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
+        let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+        //let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
         return Light(RGB, w_i, T_MAX);
     }
     else
@@ -847,7 +849,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     var result = vec3f(0.0);
     let progressiveSampling = uniforms_uint.progressiveSampling != 0;
     const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
-    const max_depth = 10;
+    const max_depth = 20;
     var base_uv = vec2f(coords.x * uniforms.aspect * 0.5f, coords.y * 0.5f);
     if (progressiveSampling) {
         base_uv += jitter;
@@ -863,10 +865,10 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
         { 
             let u = 0.5 + atan2(r.direction.x, -r.direction.z) / (2.0 * PI);
             let v = 1/PI * acos(-r.direction.y);
-            //let RGBE = texture(envTexture, vec2f(u, v), false, false);
+            let RGBE = texture(envTexture, vec2f(u, v), false, false);
             //convert RGBE to RGB
-            //let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
-            let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
+            let RGB = RGBE.rgb * pow(2.0, 255.0 * RGBE.a - 128.0);
+            //let RGB = texture(envTexture, vec2f(u, v), false, false).xyz;
             
             result += hit.throughput * RGB;
             break; 
@@ -880,7 +882,7 @@ fn main_fs(@builtin(position) fragcoord: vec4f, @location(0) coords: vec2f) -> F
     let curr_sum = textureLoad(renderTexture, vec2u(fragcoord.xy), 0).rgb*f32(uniforms_uint.frameNumber);
     let accum_color = (result + curr_sum)/f32(uniforms_uint.frameNumber + 1u);
     var fsOut: FSOut;
-    const gamma = 1.0;
+    const gamma = 2.2;
     fsOut.frame = vec4f(pow(accum_color, vec3f(1.0/gamma)), 1.0);
     fsOut.accum = vec4f(accum_color, 1.0);
     return fsOut;

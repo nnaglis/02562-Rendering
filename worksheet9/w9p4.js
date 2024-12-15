@@ -4,10 +4,10 @@ const padding = 0.0;
 
 
 class Camera {
-    eyePos = vec3(0.15, 7.0, 16.0);
-    lookat = vec3(0.15, 3.5, 0.0);
+    eyePos = vec3(0.15, 6, 8.0);
+    lookat = vec3(0.15,-1.0, 0.0);
     up = vec3(0.0, 1.0, 0.0);
-    cam_const = 1.0;
+    cam_const = 0.8;
 };
 
 
@@ -251,7 +251,7 @@ async function main() {
 
     //textures.env = await loadHDRTexture(device, '../data/luxo_pxr_campus.hdr.png');
 
-    textures.env = await load_texture(device, '../data/luxo_pxr_campus.jpg');
+    textures.env = await load_texture(device, '../data/tears_of_steel_bridge_4k.RGBE.png');
 
     const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
