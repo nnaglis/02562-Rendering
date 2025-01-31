@@ -35,4 +35,4 @@ Code can be executed by using *Live Server* extension on Visual Studio Code and 
 
 As an individual project, it was chosen to apply learned concepts on Metal API for (hardware accelerated) ray tracing on macOS and investigate the debugging capabilities of of Xcode for Metal API.
 
-More details can be found in the [Project folder](./Project).
+More details can be found in the [Project Document](./Project/02562___Rendering_Project.pdf).
